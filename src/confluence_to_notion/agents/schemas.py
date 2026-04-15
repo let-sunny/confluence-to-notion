@@ -8,6 +8,150 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# --- Development Pipeline Schemas ---
+
+
+class DevTask(BaseModel):
+    """A single task in a development plan."""
+
+    task_id: str = Field(description="Unique ID, e.g. 'task:1'")
+    title: str = Field(description="Short imperative title")
+    description: str = Field(description="What needs to be done")
+    affected_files: list[str] = Field(
+        min_length=1,
+        description="Files to create or modify",
+    )
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description="Task IDs this depends on",
+    )
+    test_files: list[str] = Field(
+        default_factory=list,
+        description="Test files to create or modify",
+    )
+
+
+class DevPlan(BaseModel):
+    """Output of the dev-planner agent -> output/dev/plan.json."""
+
+    issue_number: int = Field(gt=0, description="GitHub issue number")
+    issue_title: str = Field(description="Issue title")
+    tasks: list[DevTask] = Field(
+        min_length=1,
+        description="Ordered list of tasks to implement (max 5)",
+    )
+    split: bool = Field(
+        default=False,
+        description="True if the issue was too big and this plan covers only a slice",
+    )
+    remaining_description: str | None = Field(
+        default=None,
+        description="What's left for the next run, used to create a follow-up issue",
+    )
+
+
+class DevDecision(BaseModel):
+    """A decision made by the implementer, explaining why a particular approach was chosen."""
+
+    task_id: str = Field(description="Which task this decision relates to")
+    description: str = Field(description="What was decided")
+    reason: str = Field(description="Why this approach was chosen")
+    alternatives: list[str] | None = Field(
+        default=None,
+        description="Other approaches that were considered but rejected",
+    )
+
+
+class DevImplementLog(BaseModel):
+    """Output of the dev-implementer agent -> output/dev/implement-log.json.
+
+    Captures the 'why' behind implementation choices so the reviewer
+    can distinguish intentional decisions from mistakes.
+    """
+
+    plan_file: str = Field(description="Path to the plan that was implemented")
+    decisions: list[DevDecision] = Field(
+        default_factory=list,
+        description="Key decisions made during implementation",
+    )
+    known_risks: list[str] = Field(
+        default_factory=list,
+        description="Known risks or limitations the implementer is aware of",
+    )
+
+
+class DevReviewIssue(BaseModel):
+    """A single issue found during code review."""
+
+    severity: Literal["error", "warning", "suggestion"] = Field(
+        description="Issue severity",
+    )
+    file: str = Field(description="File path where the issue was found")
+    line: int | None = Field(default=None, description="Line number, if applicable")
+    description: str = Field(description="What the issue is")
+    suggestion: str | None = Field(default=None, description="How to fix it")
+    intent_conflict: bool = Field(
+        default=False,
+        description="True if this finding conflicts with an implementer's stated decision",
+    )
+    implement_intent: str | None = Field(
+        default=None,
+        description="The implementer's stated reason, if this is an intent conflict",
+    )
+
+
+class DevReview(BaseModel):
+    """Output of the dev-reviewer agent -> output/dev/review.json."""
+
+    plan_file: str = Field(description="Path to the plan file that was reviewed against")
+    files_reviewed: list[str] = Field(
+        min_length=1,
+        description="Files that were reviewed",
+    )
+    issues: list[DevReviewIssue] = Field(
+        default_factory=list,
+        description="Issues found during review",
+    )
+    approved: bool = Field(description="Whether the changes pass review")
+
+
+# --- Pipeline State Tracking ---
+
+
+class DevStepRecord(BaseModel):
+    """A single step execution record in the pipeline."""
+
+    step: int = Field(description="Step number (1-7)")
+    name: str = Field(description="Step name, e.g. 'dev-planner'")
+    status: Literal["running", "completed", "failed", "skipped"] = Field(
+        description="Step execution status",
+    )
+    started_at: str = Field(description="ISO 8601 timestamp")
+    completed_at: str | None = Field(default=None, description="ISO 8601 timestamp")
+    duration_ms: int | None = Field(default=None, description="Duration in milliseconds")
+    summary: str | None = Field(default=None, description="Short result description")
+    error: str | None = Field(default=None, description="Error message if failed")
+
+
+class PipelineState(BaseModel):
+    """Full pipeline state -> output/dev/index.json.
+
+    Tracks every step's timing, status, and the circuit breaker state.
+    Replaces the old circuit.json with a comprehensive state file.
+    """
+
+    issue_number: int = Field(description="GitHub issue being processed")
+    branch: str = Field(description="Git branch name")
+    steps: list[DevStepRecord] = Field(default_factory=list, description="Step execution log")
+    circuit_state: Literal["CLOSED", "OPEN", "HALF_OPEN"] = Field(
+        default="CLOSED", description="Circuit breaker state",
+    )
+    fix_retries: int = Field(default=0, description="Number of fix attempts so far")
+    error_counts: list[int] = Field(
+        default_factory=list,
+        description="Error count history across fix attempts",
+    )
+
 # --- Discovery Agent Output ---
 
 
