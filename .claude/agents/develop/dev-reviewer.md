@@ -24,7 +24,7 @@ You are a code review agent. Your job is to review the implementation against th
 3. **Read project standards**:
    - `CLAUDE.md` — CRITICAL rules
    - `.claude/docs/architecture.md` — module responsibility map (for architecture checklist)
-   - `.claude/docs/adr/*.md` — ADR decisions (for ADR checklist)
+   - `.claude/docs/ADR.md` — ADR decisions (for ADR checklist)
    - `.claude/rules/*.md` — coding style, testing rules
 4. **Get the diff**: run `git diff HEAD` to see all changes (both staged and unstaged)
 5. **Run the review checklist** (see below) against each changed file
@@ -41,7 +41,7 @@ Go through every item. Each failed item becomes an issue in the review output.
 - [ ] `src/` contains only I/O adapters and the deterministic converter
 - [ ] Pydantic schemas in `schemas.py` define agent I/O contracts
 
-#### ADR compliance (`.claude/docs/adr/`)
+#### ADR compliance (`.claude/docs/ADR.md`)
 - [ ] Technology choices match ADR decisions (httpx for REST, not requests; Pydantic v2, not v1)
 - [ ] Orchestration is bash script, not Claude commands (ADR-002)
 - [ ] Each `claude -p` session is independent with clean context (ADR-001)

@@ -121,4 +121,4 @@ The pipeline is **linear** (Discovery → Proposer → Critic → Arbitrator). N
 - **httpx for Confluence**: Direct REST for pagination, auth, async control.
 - **Python for I/O only**: `src/` handles API calls and deterministic conversion. LLM reasoning stays in subagents.
 
-See [ADR-001](adr/001-multi-agent-pattern.md) for the multi-agent pipeline decision.
+See [ADR.md](ADR.md) for architecture decision records.
