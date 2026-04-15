@@ -736,6 +736,29 @@ class TestConfluenceSource:
         )
         assert src.accessible is False
 
+    def test_fetched_at_defaults_to_none(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://example.com",
+            space_key="TEST",
+            macro_density=0.5,
+            sample_macros=["toc"],
+            page_count=10,
+            accessible=True,
+        )
+        assert src.fetched_at is None
+
+    def test_fetched_at_accepts_iso_timestamp(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://example.com",
+            space_key="TEST",
+            macro_density=0.5,
+            sample_macros=["toc"],
+            page_count=10,
+            accessible=True,
+            fetched_at="2026-04-16T12:00:00Z",
+        )
+        assert src.fetched_at == "2026-04-16T12:00:00Z"
+
 
 class TestScoutOutput:
     def test_valid_output(self) -> None:
@@ -781,3 +804,31 @@ class TestScoutOutput:
         json_str = output.model_dump_json(indent=2)
         parsed = ScoutOutput.model_validate_json(json_str)
         assert parsed == output
+
+    def test_json_roundtrip_preserves_fetched_at(self) -> None:
+        output = ScoutOutput(
+            sources=[
+                ConfluenceSource(
+                    wiki_url="https://cwiki.apache.org/confluence",
+                    space_key="KAFKA",
+                    macro_density=0.8,
+                    sample_macros=["toc", "code"],
+                    page_count=200,
+                    accessible=True,
+                    fetched_at="2026-04-16T12:00:00Z",
+                ),
+                ConfluenceSource(
+                    wiki_url="https://wiki.example.com",
+                    space_key="DOCS",
+                    macro_density=0.0,
+                    sample_macros=[],
+                    page_count=50,
+                    accessible=False,
+                ),
+            ],
+        )
+        json_str = output.model_dump_json(indent=2)
+        parsed = ScoutOutput.model_validate_json(json_str)
+        assert parsed == output
+        assert parsed.sources[0].fetched_at == "2026-04-16T12:00:00Z"
+        assert parsed.sources[1].fetched_at is None
