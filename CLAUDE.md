@@ -51,9 +51,13 @@ uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
 uv run cli notion-ping                        # Validate Notion token
 uv run cli validate-output <file> <schema>   # Validate agent output (discovery|proposer)
 
-# Agent pipeline (bash script orchestration)
-bash scripts/discover.sh samples/             # Run full pipeline
-bash scripts/discover.sh samples/ --from 2    # Resume from step 2
+# Conversion (Python CLI)
+uv run cli finalize output/proposals.json     # proposals.json → rules.json
+uv run cli convert --rules output/rules.json --input samples/  # XHTML → Notion blocks
+
+# Agent pipeline (bash script orchestration) — steps 1-2 agents, 3-4 deterministic
+bash scripts/discover.sh samples/             # Run full pipeline (4 steps)
+bash scripts/discover.sh samples/ --from 3    # Resume from step 3 (finalize + convert)
 
 # Development
 uv run pytest                                 # Run tests

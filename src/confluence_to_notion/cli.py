@@ -1,6 +1,7 @@
 """CLI entry points for confluence-to-notion."""
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -162,8 +163,93 @@ def validate_output(
 
 
 @app.command()
+def finalize(
+    proposals_file: Path = typer.Argument(
+        Path("output/proposals.json"), help="Path to proposals.json"
+    ),
+    out: Path = typer.Option(Path("output/rules.json"), help="Output rules.json path"),
+) -> None:
+    """Convert proposals.json → rules.json (2-agent shortcut).
+
+    Promotes all proposed rules to final rules with enabled=True.
+    When critic/arbitrator agents are added, this step will be replaced.
+    """
+    from confluence_to_notion.agents.schemas import FinalRuleset, ProposerOutput
+
+    if not proposals_file.exists():
+        console.print(f"[red]File not found: {proposals_file}[/red]")
+        raise typer.Exit(code=1)
+
+    raw = proposals_file.read_text()
+    try:
+        proposer = ProposerOutput.model_validate_json(raw)
+    except ValidationError as e:
+        console.print(f"[red]Invalid proposals file: {e.error_count()} errors[/red]")
+        raise typer.Exit(code=1) from None
+
+    ruleset = FinalRuleset.from_proposer_output(proposer)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(ruleset.model_dump_json(indent=2) + "\n")
+    console.print(
+        f"[green]Finalized {len(ruleset.rules)} rules → {out}[/green]"
+    )
+
+
+@app.command()
+def convert(
+    rules_file: Path = typer.Option(
+        Path("output/rules.json"), "--rules", help="Path to rules.json"
+    ),
+    input_dir: Path = typer.Option(
+        Path("samples"), "--input", help="Directory of XHTML files"
+    ),
+    output_dir: Path = typer.Option(
+        Path("output/converted"), "--output", help="Output directory for converted JSON"
+    ),
+) -> None:
+    """Convert XHTML pages to Notion blocks using finalized rules.
+
+    Examples:
+        cli convert --rules output/rules.json --input samples/ --output output/converted/
+    """
+    from confluence_to_notion.agents.schemas import FinalRuleset
+    from confluence_to_notion.converter.converter import convert_page
+
+    if not rules_file.exists():
+        console.print(f"[red]Rules file not found: {rules_file}[/red]")
+        raise typer.Exit(code=1)
+    if not input_dir.exists():
+        console.print(f"[red]Input directory not found: {input_dir}[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        ruleset = FinalRuleset.model_validate_json(rules_file.read_text())
+    except ValidationError as e:
+        console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
+        raise typer.Exit(code=1) from None
+
+    xhtml_files = sorted(input_dir.glob("*.xhtml"))
+    if not xhtml_files:
+        console.print(f"[yellow]No .xhtml files found in {input_dir}[/yellow]")
+        raise typer.Exit(code=1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    converted = 0
+
+    for xhtml_path in xhtml_files:
+        xhtml = xhtml_path.read_text()
+        blocks = convert_page(xhtml, ruleset)
+        out_file = output_dir / f"{xhtml_path.stem}.json"
+        out_file.write_text(json.dumps(blocks, indent=2, ensure_ascii=False) + "\n")
+        converted += 1
+        console.print(f"  {xhtml_path.name} → {out_file.name} ({len(blocks)} blocks)")
+
+    console.print(f"[green]Converted {converted} pages → {output_dir}[/green]")
+
+
+@app.command()
 def migrate() -> None:
-    """Run migration pipeline. (Day 3)"""
+    """Upload converted pages to Notion. (Day 4)"""
     console.print("[yellow]Not implemented yet[/yellow]")
     raise typer.Exit(code=1)
 

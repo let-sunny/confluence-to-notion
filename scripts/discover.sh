@@ -55,26 +55,22 @@ run_step 2 "rule-proposer" \
 
 Read ${OUTPUT_DIR}/patterns.json and propose transformation rules. Write to ${OUTPUT_DIR}/proposals.json"
 
-# Step 3: Rule Critic (deferred — agent not yet implemented)
-if [[ -f ".claude/agents/rule-critic.md" ]]; then
-    run_step 3 "rule-critic" \
-        ".claude/agents/rule-critic.md" \
-        "$(cat .claude/agents/rule-critic.md)
-
-Read ${OUTPUT_DIR}/proposals.json, validate against XHTML samples in ${SAMPLES_DIR}. Write to ${OUTPUT_DIR}/critiques.json"
-else
-    echo "==> Step 3: rule-critic (skipped, agent not implemented)"
+# Step 3: Finalize rules (2-agent shortcut: proposals → rules.json)
+# When critic/arbitrator agents are added, this step will be replaced by steps 3+4.
+if [[ "$FROM_STEP" -le 3 ]]; then
+    echo "==> Step 3: finalize (proposals → rules.json)"
+    uv run cli finalize "${OUTPUT_DIR}/proposals.json" --out "${OUTPUT_DIR}/rules.json"
+    echo "    Done: ${OUTPUT_DIR}/rules.json"
 fi
 
-# Step 4: Rule Arbitrator (deferred — agent not yet implemented)
-if [[ -f ".claude/agents/rule-arbitrator.md" ]]; then
-    run_step 4 "rule-arbitrator" \
-        ".claude/agents/rule-arbitrator.md" \
-        "$(cat .claude/agents/rule-arbitrator.md)
-
-Read ${OUTPUT_DIR}/critiques.json, resolve conflicts. Write final rules to ${OUTPUT_DIR}/rules.json"
-else
-    echo "==> Step 4: rule-arbitrator (skipped, agent not implemented)"
+# Step 4: Convert XHTML → Notion blocks
+if [[ "$FROM_STEP" -le 4 ]]; then
+    echo "==> Step 4: convert (XHTML → Notion blocks)"
+    uv run cli convert \
+        --rules "${OUTPUT_DIR}/rules.json" \
+        --input "${SAMPLES_DIR}" \
+        --output "${OUTPUT_DIR}/converted"
+    echo "    Done: ${OUTPUT_DIR}/converted/"
 fi
 
 echo ""
