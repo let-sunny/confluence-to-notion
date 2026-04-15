@@ -4,13 +4,16 @@
 # Chains:
 #   1. Run confluence-scout agent → output/sources.json
 #   2. Parse sources.json for new accessible sources (fetched_at == null)
-#   3. Fetch pages from each new source into samples/<space_key>/
-#   4. Update fetched_at in sources.json
-#   5. Run discover.sh for each newly fetched source
+#   Per new source:
+#     3. Fetch pages into samples/<space_key>/
+#     4. Run discover.sh
+#     5. Stamp fetched_at (only after both 3+4 succeed; failures retry next run)
 #
 # Usage:
 #   bash scripts/scout-pipeline.sh
 #   bash scripts/scout-pipeline.sh --dry-run   # preview without executing
+#
+# Note: --dry-run with no existing sources.json exits after Step 1 (nothing to preview).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +29,12 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# Require jq for JSON processing in Steps 2-5
+if ! command -v jq &>/dev/null; then
+    echo "ERROR: jq is required but not installed. Install it with: brew install jq"
+    exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -68,9 +77,13 @@ echo "$NEW_SOURCES" | while IFS='|' read -r url key; do
     echo "      - ${key} @ ${url}"
 done
 
-# --- Steps 3-5: For each new source: fetch, update timestamp, discover ---
+# --- Steps 3-5: For each new source: fetch, discover, stamp fetched_at ---
+# fetched_at is set only after discover succeeds, so failed sources are retried next run.
+# One source failing does not block subsequent sources.
 echo ""
-echo "$NEW_SOURCES" | while IFS='|' read -r wiki_url space_key; do
+FAILED_SOURCES=""
+
+while IFS='|' read -r wiki_url space_key; do
     SAMPLES_SUBDIR="${PROJECT_DIR}/samples/${space_key}"
 
     # Step 3: Fetch pages
@@ -79,15 +92,34 @@ echo "$NEW_SOURCES" | while IFS='|' read -r wiki_url space_key; do
         echo "    [dry-run] Would run: CONFLUENCE_BASE_URL=${wiki_url} uv run cli fetch --space ${space_key} --limit 50 --out-dir ${SAMPLES_SUBDIR}"
     else
         mkdir -p "$SAMPLES_SUBDIR"
-        CONFLUENCE_BASE_URL="${wiki_url}" uv run cli fetch \
+        if ! CONFLUENCE_BASE_URL="${wiki_url}" uv run cli fetch \
             --space "$space_key" \
             --limit 50 \
-            --out-dir "$SAMPLES_SUBDIR"
+            --out-dir "$SAMPLES_SUBDIR"; then
+            echo "    FAILED: fetch for ${space_key} — skipping"
+            FAILED_SOURCES="${FAILED_SOURCES}${space_key} (fetch), "
+            echo ""
+            continue
+        fi
         echo "    Done: ${SAMPLES_SUBDIR}/"
     fi
 
-    # Step 4: Update fetched_at timestamp in sources.json
-    echo "==> Step 4: Update fetched_at for ${space_key}"
+    # Step 4: Run discovery pipeline
+    echo "==> Step 4: Run discover.sh for ${space_key}"
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "    [dry-run] Would run: bash scripts/discover.sh ${SAMPLES_SUBDIR}"
+    else
+        if ! bash "${SCRIPT_DIR}/discover.sh" "$SAMPLES_SUBDIR"; then
+            echo "    FAILED: discover for ${space_key} — skipping"
+            FAILED_SOURCES="${FAILED_SOURCES}${space_key} (discover), "
+            echo ""
+            continue
+        fi
+        echo "    Done: discovery pipeline for ${space_key}"
+    fi
+
+    # Step 5: Stamp fetched_at (only after fetch + discover both succeed)
+    echo "==> Step 5: Update fetched_at for ${space_key}"
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "    [dry-run] Would set fetched_at=${TIMESTAMP} for ${space_key}"
@@ -99,16 +131,13 @@ echo "$NEW_SOURCES" | while IFS='|' read -r wiki_url space_key; do
         echo "    Done: fetched_at=${TIMESTAMP}"
     fi
 
-    # Step 5: Run discovery pipeline
-    echo "==> Step 5: Run discover.sh for ${space_key}"
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo "    [dry-run] Would run: bash scripts/discover.sh ${SAMPLES_SUBDIR}"
-    else
-        bash "${SCRIPT_DIR}/discover.sh" "$SAMPLES_SUBDIR"
-        echo "    Done: discovery pipeline for ${space_key}"
-    fi
-
     echo ""
-done
+done <<< "$NEW_SOURCES"
 
-echo "==> Scout pipeline complete."
+# Report results
+if [[ -n "$FAILED_SOURCES" ]]; then
+    echo "==> Scout pipeline complete with failures: ${FAILED_SOURCES%, }"
+    exit 1
+else
+    echo "==> Scout pipeline complete."
+fi

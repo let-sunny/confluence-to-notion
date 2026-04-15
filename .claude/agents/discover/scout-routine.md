@@ -43,18 +43,13 @@ You are a scout routine agent triggered on a schedule. Your job is to run the fu
 
 ## Scheduling as a Claude Code Trigger
 
-To register this routine as a recurring scheduled trigger, use Claude Code's CronCreate:
+To register this as a recurring trigger, use Claude Code's CronCreate with this agent's
+prompt file — the agent handles running the script and reporting results:
 
 ```
 CronCreate:
   schedule: "0 9 * * 1"          # Every Monday at 9:00 AM UTC
-  prompt: |
-    Run the scout routine agent.
-    bash scripts/scout-pipeline.sh
-    Then read output/sources.json and report a summary of:
-    - total sources, accessible count, fetched count
-    - any new sources discovered or fetched in this run
-    - any errors from the pipeline
+  prompt: <contents of .claude/agents/discover/scout-routine.md>
 ```
 
 Adjust the cron schedule as needed. Common schedules:
