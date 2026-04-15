@@ -8,7 +8,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 - Python 3.11+
 - Package manager: uv
 - Agents: Claude Code subagents (`.claude/agents/*.md`), each runs as independent `claude -p` session
-- Orchestration: bash scripts (`scripts/discover.sh`) — NOT Claude commands
+- Orchestration: bash scripts (`scripts/discover.sh`, `scripts/develop.sh`) — NOT Claude commands
 - Confluence client: httpx (direct REST, no atlassian-python-api)
 - Notion client: notion-client (official SDK)
 - CLI: typer (data prep utilities)
@@ -20,7 +20,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 
 ## Architecture Rules
 
-- **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<name>.md` — NOT Python modules
+- **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<pipeline>/<name>.md` — NOT Python modules
 - **CRITICAL**: Orchestration is a bash script (`scripts/discover.sh`), NOT a Claude command. Flow control must be deterministic and visible in code.
 - **CRITICAL**: Each `claude -p` call runs in a clean context. Agents communicate via files only.
 - **CRITICAL**: Never commit secrets. Use `.env` + pydantic-settings
@@ -58,6 +58,10 @@ uv run cli convert --rules output/rules.json --input samples/  # XHTML → Notio
 # Agent pipeline (bash script orchestration) — steps 1-2 agents, 3-4 deterministic
 bash scripts/discover.sh samples/             # Run full pipeline (4 steps)
 bash scripts/discover.sh samples/ --from 3    # Resume from step 3 (finalize + convert)
+
+# Automated development pipeline — 7 steps: Plan, Implement, Test, Review, Fix, Verify, PR
+bash scripts/develop.sh <issue-number>              # Run full pipeline
+bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
 # Development
 uv run pytest                                 # Run tests

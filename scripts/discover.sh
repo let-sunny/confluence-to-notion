@@ -43,15 +43,15 @@ run_step() {
 
 # Step 1: Pattern Discovery
 run_step 1 "pattern-discovery" \
-    ".claude/agents/pattern-discovery.md" \
-    "$(cat .claude/agents/pattern-discovery.md)
+    ".claude/agents/discover/pattern-discovery.md" \
+    "$(cat .claude/agents/discover/pattern-discovery.md)
 
 Analyze the XHTML files in ${SAMPLES_DIR} and write discovered patterns to ${OUTPUT_DIR}/patterns.json"
 
 # Step 2: Rule Proposer
 run_step 2 "rule-proposer" \
-    ".claude/agents/rule-proposer.md" \
-    "$(cat .claude/agents/rule-proposer.md)
+    ".claude/agents/discover/rule-proposer.md" \
+    "$(cat .claude/agents/discover/rule-proposer.md)
 
 Read ${OUTPUT_DIR}/patterns.json and propose transformation rules. Write to ${OUTPUT_DIR}/proposals.json"
 

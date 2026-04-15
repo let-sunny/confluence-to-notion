@@ -1,6 +1,6 @@
 # Prompt Management Rules
 
-Agent prompts are embedded in `.claude/agents/<name>.md` files.
+Agent prompts are embedded in `.claude/agents/<pipeline>/<name>.md` files.
 
 ## Structure of an agent file
 
