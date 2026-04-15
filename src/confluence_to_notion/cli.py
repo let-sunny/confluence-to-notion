@@ -119,6 +119,48 @@ def discover() -> None:
     raise typer.Exit(code=1)
 
 
+@app.command(name="validate-output")
+def validate_output(
+    file: Path = typer.Argument(..., help="JSON file to validate"),
+    schema: str = typer.Argument(
+        ..., help="Schema name: 'discovery' or 'proposer'"
+    ),
+) -> None:
+    """Validate an agent output file against its Pydantic schema.
+
+    Examples:
+        cli validate-output output/patterns.json discovery
+        cli validate-output output/proposals.json proposer
+    """
+    from confluence_to_notion.agents.schemas import DiscoveryOutput, ProposerOutput
+
+    if not file.exists():
+        console.print(f"[red]File not found: {file}[/red]")
+        raise typer.Exit(code=1)
+
+    raw = file.read_text()
+
+    try:
+        if schema == "discovery":
+            obj_d = DiscoveryOutput.model_validate_json(raw)
+            console.print(
+                f"[green]Valid DiscoveryOutput: {obj_d.pages_analyzed} pages, "
+                f"{len(obj_d.patterns)} patterns[/green]"
+            )
+        elif schema == "proposer":
+            obj_p = ProposerOutput.model_validate_json(raw)
+            console.print(f"[green]Valid ProposerOutput: {len(obj_p.rules)} rules[/green]")
+        else:
+            console.print(f"[red]Unknown schema '{schema}'. Use: discovery, proposer[/red]")
+            raise typer.Exit(code=1)
+    except ValidationError as e:
+        console.print(f"[red]Validation failed for {file}:[/red]")
+        for err in e.errors():
+            loc = " → ".join(str(loc) for loc in err["loc"])
+            console.print(f"  [red]• {loc}: {err['msg']}[/red]")
+        raise typer.Exit(code=1) from None
+
+
 @app.command()
 def migrate() -> None:
     """Run migration pipeline. (Day 3)"""

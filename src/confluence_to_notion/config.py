@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     Fields are optional so that each CLI command only requires what it needs:
     - `fetch` needs only confluence_base_url
     - `notion-ping` needs notion_api_token
-    - Agent pipeline needs anthropic_api_key
+    - Agent pipeline runs via `claude -p` (no API key needed)
     """
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
@@ -24,10 +24,6 @@ class Settings(BaseSettings):
     # Notion (optional — only needed for notion-ping, migrate)
     notion_api_token: str | None = None
     notion_root_page_id: str | None = None
-
-    # Anthropic (optional — only needed for agent pipeline)
-    anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-sonnet-4-5-20250929"
 
     @field_validator("confluence_base_url")
     @classmethod

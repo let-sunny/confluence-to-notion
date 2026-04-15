@@ -1,6 +1,6 @@
 # ADR-001: Multi-Agent Pipeline for Rule Discovery
 
-**Status**: Accepted (amended 2026-04-16 — agent implementation changed from Python modules to Claude Code subagents, see ADR-002)
+**Status**: Accepted (amended 2026-04-16)
 **Date**: 2026-04-15
 
 ## Context
@@ -23,11 +23,13 @@ Use a multi-agent pipeline where each agent has a focused responsibility:
 3. **Rule Critic Agent** — Validates proposed rules against held-out sample pages, identifying gaps and conflicts
 4. **Rule Arbitrator Agent** — Resolves conflicts between competing rules and produces the final ruleset
 
-Originally designed as 4 agents, but the exact count is subject to review after seeing real Discovery/Proposer output. The pipeline may start as 2 agents (Discovery + Proposer) and expand to 4 if rule quality requires it.
+**Starting with 2 agents** (Discovery + Proposer). Critic and Arbitrator are deferred until real output quality is assessed — if Discovery+Proposer produce clean rules without conflicts, the extra agents add cost without value.
 
 Agents communicate via JSON files on disk. The output is a deterministic `rules.json` that is then applied by a non-LLM converter to perform the actual migration.
 
 **Amendment (2026-04-16)**: Agents are implemented as Claude Code subagents (`.claude/agents/<name>.md`), not Python modules calling the Anthropic API. See ADR-002 for the orchestration decision.
+
+**Amendment (2026-04-16)**: Decided to start with 2 agents (Discovery + Proposer). Critic/Arbitrator will be added if rule quality review shows conflicts or gaps that require automated critique.
 
 ## Consequences
 

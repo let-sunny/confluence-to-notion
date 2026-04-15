@@ -5,21 +5,20 @@ from pydantic import ValidationError
 
 from confluence_to_notion.config import Settings
 
-# All fields provided (authenticated Confluence + Notion + Anthropic)
+# All fields provided (authenticated Confluence + Notion)
 _FULL = dict(
     confluence_base_url="https://test.atlassian.net/wiki",
     confluence_email="user@example.com",
     confluence_api_token="token123",
     notion_api_token="ntn_xxx",
     notion_root_page_id="page-id",
-    anthropic_api_key="sk-ant-xxx",
 )
 
 
 def test_settings_with_all_fields() -> None:
     s = Settings(**_FULL)
     assert s.confluence_base_url == "https://test.atlassian.net/wiki"
-    assert s.anthropic_model == "claude-sonnet-4-5-20250929"
+    assert s.notion_api_token == "ntn_xxx"
 
 
 def test_settings_minimal_defaults() -> None:
@@ -28,7 +27,7 @@ def test_settings_minimal_defaults() -> None:
     assert s.confluence_base_url == "https://cwiki.apache.org/confluence"
     assert s.confluence_email is None
     assert s.notion_api_token is None
-    assert s.anthropic_api_key is None
+    assert s.notion_api_token is None
 
 
 def test_settings_public_wiki_no_auth() -> None:
