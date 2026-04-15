@@ -1,6 +1,6 @@
 # ADR-001: Multi-Agent Pipeline for Rule Discovery
 
-**Status**: Accepted
+**Status**: Accepted (amended 2026-04-16 — agent implementation changed from Python modules to Claude Code subagents, see ADR-002)
 **Date**: 2026-04-15
 
 ## Context
@@ -16,14 +16,18 @@ This is a complex reasoning task where a single prompt would exceed the optimal 
 
 ## Decision
 
-Use a 4-agent pipeline where each agent has a focused responsibility:
+Use a multi-agent pipeline where each agent has a focused responsibility:
 
 1. **Pattern Discovery Agent** — Analyzes sample XHTML pages and extracts repeating structural patterns and Confluence macros
 2. **Rule Proposer Agent** — Takes discovered patterns and proposes Confluence→Notion block mapping rules
 3. **Rule Critic Agent** — Validates proposed rules against held-out sample pages, identifying gaps and conflicts
 4. **Rule Arbitrator Agent** — Resolves conflicts between competing rules and produces the final ruleset
 
-The agents communicate via typed Pydantic models. The output is a deterministic `rules.json` that is then applied by a non-LLM converter to perform the actual migration.
+Originally designed as 4 agents, but the exact count is subject to review after seeing real Discovery/Proposer output. The pipeline may start as 2 agents (Discovery + Proposer) and expand to 4 if rule quality requires it.
+
+Agents communicate via JSON files on disk. The output is a deterministic `rules.json` that is then applied by a non-LLM converter to perform the actual migration.
+
+**Amendment (2026-04-16)**: Agents are implemented as Claude Code subagents (`.claude/agents/<name>.md`), not Python modules calling the Anthropic API. See ADR-002 for the orchestration decision.
 
 ## Consequences
 
@@ -37,9 +41,9 @@ The agents communicate via typed Pydantic models. The output is a deterministic 
 
 ### Negative
 
-- More complex orchestration code than a single-pass approach
 - Higher total token usage due to inter-agent communication
-- Requires careful schema design for agent-to-agent data contracts
+- Requires careful schema design for agent-to-agent data contracts (JSON files)
+- Each agent runs in a separate `claude -p` session — no shared context
 
 ## Alternatives Considered
 
@@ -59,9 +63,7 @@ Hand-write all transformation rules. Rejected because:
 
 ### Two-agent (propose + validate)
 
-Simpler pipeline with just a proposer and validator. Rejected because:
-- Pattern discovery is a distinct task that benefits from focused prompting
-- Conflict resolution needs its own decision logic when the critic rejects rules
+Simpler pipeline with just a proposer and validator. Not fully rejected — may be the starting point. Pattern discovery is a distinct task that benefits from focused prompting, so at minimum 2 agents (Discovery + Proposer) are needed.
 
 ## Prior Art
 
