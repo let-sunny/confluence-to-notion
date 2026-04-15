@@ -103,8 +103,13 @@ def notion_ping() -> None:
 
 @app.command()
 def discover() -> None:
-    """Run pattern discovery agent. (Day 2)"""
-    console.print("[yellow]Not implemented yet[/yellow]")
+    """Run pattern discovery pipeline.
+
+    This is a convenience hint. The actual pipeline runs via Claude Code subagents:
+        claude -p "/discover samples/"
+    """
+    console.print("[yellow]Discovery runs via Claude Code subagents, not this CLI.[/yellow]")
+    console.print('  claude -p "/discover samples/"')
     raise typer.Exit(code=1)
 
 

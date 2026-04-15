@@ -31,6 +31,10 @@ samples/*.xml
 samples/*.xhtml
 !samples/.gitkeep
 
+# Agent pipeline output
+output/*.json
+!output/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db

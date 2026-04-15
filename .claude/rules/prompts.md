@@ -1,16 +1,20 @@
 # Prompt Management Rules
 
-- Prompts are markdown files (`.md`), loaded at runtime
-- Variables use Jinja2 syntax: `{{ variable_name }}`
-- Every prompt file must have a YAML front-matter block:
-  ```yaml
-  ---
-  agent: <agent-name>
-  purpose: <one-line description>
-  expected_output_schema: <PydanticModelName>
-  ---
-  ```
-- Prompt changes require a corresponding eval run (`scripts/run-eval.sh`)
-- Prompt files live in `src/confluence_to_notion/agents/<name>/prompts/`
-- System prompts and user prompts are separate files
-- Never hardcode prompt text in Python source files
+Agent prompts are embedded in `.claude/agents/<name>.md` files.
+
+## Structure of an agent file
+
+Each agent `.md` file should contain:
+1. **Purpose**: One-line description of what the agent does
+2. **Input**: What files/data the agent reads and their expected format
+3. **Output**: What files/data the agent produces and their expected format
+4. **Instructions**: Detailed prompt with the agent's task, constraints, and examples
+5. **Output schema reference**: Which Pydantic model the output must match
+
+## Rules
+
+- All prompt text lives in the agent `.md` file — never in Python source code
+- When an agent prompt is changed, run `scripts/run-eval.sh` to verify quality
+- Prompts should reference the JSON schema from `src/**/schemas.py` for output format
+- Include examples of expected input/output in the prompt when possible
+- Keep prompts focused: one agent, one responsibility

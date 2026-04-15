@@ -4,63 +4,94 @@
 
 ```mermaid
 graph LR
-    subgraph Input
-        CF[Confluence Cloud API]
+    subgraph "Data Prep (Python CLI)"
+        CF[Confluence REST API]
+        FETCH[cli fetch]
+        SAMPLES[samples/*.xhtml]
     end
 
-    subgraph "Multi-Agent Pipeline"
-        D[Pattern Discovery Agent]
-        P[Rule Proposer Agent]
-        C[Rule Critic Agent]
-        A[Rule Arbitrator Agent]
+    subgraph "Agent Pipeline (Claude Code Subagents)"
+        D[pattern-discovery.md]
+        P[rule-proposer.md]
+        C[rule-critic.md]
+        A[rule-arbitrator.md]
     end
 
-    subgraph Output
-        R[rules.json]
+    subgraph "Output"
+        R[output/rules.json]
         CV[Deterministic Converter]
         N[Notion API]
     end
 
-    CF -->|XHTML pages| D
-    D -->|patterns| P
-    P -->|proposed rules| C
-    C -->|validated rules| A
-    A -->|finalized rules| R
+    CF -->|REST API| FETCH
+    FETCH -->|XHTML files| SAMPLES
+    SAMPLES --> D
+    D -->|output/patterns.json| P
+    P -->|output/proposals.json| C
+    C -->|output/critiques.json| A
+    A -->|output/rules.json| R
     R --> CV
-    CF -->|source pages| CV
+    SAMPLES --> CV
     CV -->|Notion blocks| N
+```
+
+## Execution Model
+
+There are two runtime layers:
+
+### 1. Python CLI (`uv run cli ...`)
+Handles I/O with external APIs:
+- **Fetch**: Download Confluence pages as XHTML to `samples/`
+- **Notion ping**: Validate Notion API token
+- **Convert** (future): Apply rules.json to transform pages deterministically
+- **Publish** (future): Push converted pages to Notion
+
+### 2. Claude Code Subagents (`claude -p "/discover ..."`)
+Handles LLM-powered reasoning:
+- Agents are defined as `.claude/agents/<name>.md`
+- Orchestrated by `.claude/commands/discover.md`
+- Communicate via files on disk (JSON matching Pydantic schemas)
+- Same agent definitions work interactively, via `claude -p`, and via Routines
+
+```bash
+# Interactive
+/discover samples/
+
+# Automated
+claude -p "/discover samples/"
+
+# Individual agent
+claude -p "/agent pattern-discovery samples/"
 ```
 
 ## Data Flow
 
-1. **Fetch**: Confluence pages are fetched via REST API as XHTML storage format
-2. **Discovery**: Pattern Discovery Agent analyzes XHTML samples for repeating structures and macros
-3. **Propose**: Rule Proposer Agent generates Confluence→Notion block mapping rules
-4. **Critique**: Rule Critic Agent validates proposed rules against additional samples
-5. **Arbitrate**: Rule Arbitrator Agent resolves conflicts and produces final `rules.json`
-6. **Convert**: Deterministic converter applies finalized rules to transform pages
-7. **Publish**: Converted pages are created in Notion via the official API
+1. **Fetch**: `cli fetch --pages <ids>` downloads XHTML from Confluence to `samples/`
+2. **Discovery**: `pattern-discovery` agent reads `samples/*.xhtml`, writes `output/patterns.json`
+3. **Propose**: `rule-proposer` agent reads patterns, writes `output/proposals.json`
+4. **Critique**: `rule-critic` agent validates proposals against samples, writes `output/critiques.json`
+5. **Arbitrate**: `rule-arbitrator` agent resolves conflicts, writes `output/rules.json`
+6. **Convert**: Deterministic converter applies `rules.json` to transform all pages
+7. **Publish**: Converted Notion blocks are pushed via the Notion API
 
 ## Module Responsibility Map
 
-| Module | Responsibility |
-|---|---|
-| `config.py` | Environment-based configuration via pydantic-settings |
-| `cli.py` | Typer CLI entry points for all commands |
-| `confluence/client.py` | Async httpx client for Confluence REST API |
-| `confluence/schemas.py` | Pydantic models for Confluence data |
-| `notion/client.py` | Async wrapper over notion-client SDK |
-| `notion/schemas.py` | Pydantic models for Notion data |
-| `agents/<name>/agent.py` | Agent orchestration using Claude API |
-| `agents/<name>/schemas.py` | Input/Output models for agent communication |
-| `agents/<name>/prompts/` | Markdown prompt templates (Jinja2) |
-| `prompts.py` | Shared prompt loading and rendering utility |
+| Layer | Location | Responsibility |
+|---|---|---|
+| `src/config.py` | Python | Environment-based configuration |
+| `src/confluence/client.py` | Python | Async Confluence REST API client |
+| `src/notion/client.py` | Python | Async Notion API wrapper |
+| `src/cli.py` | Python | CLI entry points for data prep |
+| `.claude/agents/*.md` | Subagent | LLM-powered reasoning tasks |
+| `.claude/commands/discover.md` | Command | Pipeline orchestration |
+| `output/*.json` | Data | Inter-agent communication files |
 
 ## Key Design Decisions
 
-- **httpx over atlassian-python-api**: Direct REST gives us control over pagination, error handling, and async support
-- **notion-client SDK**: Official SDK handles auth, rate limiting, and block construction
-- **Pydantic v2 everywhere**: Type-safe data flow between agents prevents schema drift
-- **Prompts as files**: Enables version control, review, and eval of prompt changes independently from code changes
+- **Claude Code subagents over Anthropic SDK**: One agent definition works across interactive, automated (`claude -p`), and scheduled (Routines) execution. No custom orchestration code needed.
+- **File-based communication**: Agents read/write JSON files. Simple, debuggable, version-controllable.
+- **Pydantic as contract**: JSON schemas from Pydantic models define what agents must produce. Python code validates; agents generate.
+- **httpx for Confluence**: Direct REST gives control over pagination, auth, async.
+- **Python for I/O only**: `src/` handles API calls and deterministic conversion. LLM reasoning stays in subagents.
 
 See [ADR-001](adr/001-multi-agent-pattern.md) for the multi-agent pipeline decision.
