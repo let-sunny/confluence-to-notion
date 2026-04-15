@@ -167,6 +167,10 @@ class ConfluenceSource(BaseModel):
     )
     page_count: int = Field(ge=0, description="Number of pages in the space")
     accessible: bool = Field(description="Whether the wiki is publicly accessible")
+    fetched_at: str | None = Field(
+        default=None,
+        description="ISO 8601 timestamp when pages were last fetched from this source",
+    )
 
 
 class ScoutOutput(BaseModel):
