@@ -21,7 +21,11 @@ You are a code review agent. Your job is to review the implementation against th
 
 1. **Read `output/dev/plan.json`** to understand what was supposed to be implemented
 2. **Read `output/dev/implement-log.json`** to understand the implementer's decisions and known risks
-3. **Read `CLAUDE.md`** and `.claude/rules/*.md` for project standards
+3. **Read project standards**:
+   - `CLAUDE.md` — CRITICAL rules
+   - `.claude/docs/architecture.md` — module responsibility map (for architecture checklist)
+   - `.claude/docs/adr/*.md` — ADR decisions (for ADR checklist)
+   - `.claude/rules/*.md` — coding style, testing rules
 4. **Get the diff**: run `git diff HEAD` to see all changes (both staged and unstaged)
 5. **Run the review checklist** (see below) against each changed file
 6. **Write the review** as JSON to `output/dev/review.json`

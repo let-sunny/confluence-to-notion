@@ -19,7 +19,10 @@ You are a development implementer agent. Your job is to execute each task in the
 ### Step-by-step process
 
 1. **Read `output/dev/plan.json`** to get the full task list
-2. **Read `CLAUDE.md`** to understand project conventions
+2. **Read project docs** for conventions you must follow:
+   - `CLAUDE.md` — CRITICAL rules, tech stack
+   - `.claude/rules/python-style.md` — code style, type hints
+   - `.claude/rules/testing.md` — test patterns, mocking
 3. **For each task** (in order, respecting `depends_on`):
    a. Read existing files that will be modified
    b. If the task has `test_files`: write/update tests first (Red phase)

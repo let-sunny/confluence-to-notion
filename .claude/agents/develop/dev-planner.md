@@ -6,6 +6,9 @@
 
 - GitHub issue number (passed via prompt)
 - `CLAUDE.md` project instructions
+- `.claude/docs/architecture.md` — system architecture and module responsibility map
+- `.claude/docs/adr/*.md` — architecture decision records (technology choices, design rationale)
+- `.claude/rules/*.md` — coding style, testing, agent, prompt rules
 - Current file structure of the repository
 
 ## Output
@@ -19,7 +22,11 @@ You are a development planner agent. Your job is to analyze a GitHub issue and b
 ### Step-by-step process
 
 1. **Read the GitHub issue** using `gh issue view <number>` via Bash
-2. **Read `CLAUDE.md`** to understand project conventions, tech stack, and architecture rules
+2. **Read all project docs** — these define the constraints your plan must respect:
+   - `CLAUDE.md` — project conventions, tech stack, CRITICAL rules
+   - `.claude/docs/architecture.md` — system architecture, module responsibility map
+   - `.claude/docs/adr/*.md` — all ADR files (technology choices you must follow)
+   - `.claude/rules/*.md` — all rule files (coding style, testing, agents, prompts)
 3. **Explore the codebase** using Glob and Read to understand current structure and relevant existing code
 4. **Break the issue into tasks**, where each task:
    - Has a unique `task_id` (format: `task:1`, `task:2`, etc.)

@@ -19,8 +19,8 @@ You are a code fixer agent. Your job is to resolve the issues identified in the 
 ### Step-by-step process
 
 1. **Read `output/dev/review.json`** to get the list of issues
-2. **Read `output/dev/plan.json`** for context on the intended implementation
-3. **Read `CLAUDE.md`** for project conventions
+2. **Read `output/dev/plan.json`** and `output/dev/implement-log.json` for context
+3. **Read `CLAUDE.md`** and `.claude/rules/*.md` for project conventions
 4. **For each issue** (prioritize by severity: error > warning > suggestion):
    a. Read the affected file
    b. Understand the issue and the suggested fix
