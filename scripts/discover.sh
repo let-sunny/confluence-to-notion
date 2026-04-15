@@ -5,17 +5,20 @@
 # Usage:
 #   bash scripts/discover.sh samples/
 #   bash scripts/discover.sh samples/ --from 3   # resume from step 3
+#   bash scripts/discover.sh samples/ --scout     # include step 0: scout public wikis
 set -euo pipefail
 
-SAMPLES_DIR="${1:?Usage: discover.sh <samples-dir> [--from N]}"
+SAMPLES_DIR="${1:?Usage: discover.sh <samples-dir> [--from N] [--scout]}"
 OUTPUT_DIR="output"
 FROM_STEP=1
+SCOUT=false
 
-# Parse --from flag
+# Parse flags
 shift
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --from) FROM_STEP="$2"; shift 2 ;;
+        --scout) SCOUT=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -40,6 +43,21 @@ run_step() {
 
     echo "    Done: $OUTPUT_DIR/"
 }
+
+# Step 0: Confluence Scout (optional, enabled with --scout; skipped when --from >= 1)
+if [[ "$SCOUT" == "true" && "$FROM_STEP" -le 0 ]]; then
+    echo "==> Step 0: confluence-scout"
+    claude -p "$(cat .claude/agents/discover/confluence-scout.md)
+
+Discover public Confluence wikis with rich macro usage. Write results to ${OUTPUT_DIR}/sources.json" \
+        --allowedTools "Read,Write,Bash,Glob,Grep,Edit,WebSearch,WebFetch" \
+        2>&1 | tee "$OUTPUT_DIR/confluence-scout.log"
+    echo "    Done: ${OUTPUT_DIR}/sources.json"
+elif [[ "$SCOUT" == "true" ]]; then
+    echo "==> Step 0: confluence-scout (skipped, --from $FROM_STEP)"
+else
+    echo "==> Step 0: confluence-scout (skipped, use --scout to enable)"
+fi
 
 # Step 1: Pattern Discovery
 run_step 1 "pattern-discovery" \
