@@ -49,10 +49,11 @@ Load rules from `.claude/rules/*.md`:
 uv run cli fetch --space <KEY> --limit <N>   # Fetch Confluence pages to samples/
 uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
 uv run cli notion-ping                        # Validate Notion token
+uv run cli validate-output <file> <schema>   # Validate agent output (discovery|proposer)
 
 # Agent pipeline (bash script orchestration)
 bash scripts/discover.sh samples/             # Run full pipeline
-claude -p "..." --agent-file .claude/agents/pattern-discovery.md  # Run single agent
+bash scripts/discover.sh samples/ --from 2    # Resume from step 2
 
 # Development
 uv run pytest                                 # Run tests

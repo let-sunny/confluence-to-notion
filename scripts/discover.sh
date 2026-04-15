@@ -55,19 +55,27 @@ run_step 2 "rule-proposer" \
 
 Read ${OUTPUT_DIR}/patterns.json and propose transformation rules. Write to ${OUTPUT_DIR}/proposals.json"
 
-# Step 3: Rule Critic
-run_step 3 "rule-critic" \
-    ".claude/agents/rule-critic.md" \
-    "$(cat .claude/agents/rule-critic.md)
+# Step 3: Rule Critic (deferred — agent not yet implemented)
+if [[ -f ".claude/agents/rule-critic.md" ]]; then
+    run_step 3 "rule-critic" \
+        ".claude/agents/rule-critic.md" \
+        "$(cat .claude/agents/rule-critic.md)
 
 Read ${OUTPUT_DIR}/proposals.json, validate against XHTML samples in ${SAMPLES_DIR}. Write to ${OUTPUT_DIR}/critiques.json"
+else
+    echo "==> Step 3: rule-critic (skipped, agent not implemented)"
+fi
 
-# Step 4: Rule Arbitrator
-run_step 4 "rule-arbitrator" \
-    ".claude/agents/rule-arbitrator.md" \
-    "$(cat .claude/agents/rule-arbitrator.md)
+# Step 4: Rule Arbitrator (deferred — agent not yet implemented)
+if [[ -f ".claude/agents/rule-arbitrator.md" ]]; then
+    run_step 4 "rule-arbitrator" \
+        ".claude/agents/rule-arbitrator.md" \
+        "$(cat .claude/agents/rule-arbitrator.md)
 
 Read ${OUTPUT_DIR}/critiques.json, resolve conflicts. Write final rules to ${OUTPUT_DIR}/rules.json"
+else
+    echo "==> Step 4: rule-arbitrator (skipped, agent not implemented)"
+fi
 
 echo ""
-echo "==> Pipeline complete: ${OUTPUT_DIR}/rules.json"
+echo "==> Pipeline complete. Output in ${OUTPUT_DIR}/"
