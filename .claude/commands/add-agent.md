@@ -1,15 +1,15 @@
-Create a new agent module following the rules in `.claude/rules/agents.md`.
+Create a new Claude Code subagent following the rules in `.claude/rules/agents.md`.
 
 ## Steps
 
-1. Ask for the agent name and its purpose (one-line description).
-2. Create the module at `src/confluence_to_notion/agents/$ARGUMENTS/`:
-   - `__init__.py` — exports `run`
-   - `agent.py` — scaffold with `async def run(input: InputModel) -> OutputModel`
-   - `schemas.py` — define `InputModel` and `OutputModel` (Pydantic v2)
-   - `prompts/system.md` — with YAML front-matter per `.claude/rules/prompts.md`
-   - `prompts/user.md` — with YAML front-matter per `.claude/rules/prompts.md`
-3. Create test file at `tests/unit/test_$ARGUMENTS.py` with a failing test skeleton.
-4. Create fixtures directory at `tests/fixtures/$ARGUMENTS/`.
+1. Ask for the agent name (kebab-case) and its purpose (one-line description).
+2. Create the agent file at `.claude/agents/$ARGUMENTS.md` with the structure defined in `.claude/rules/prompts.md`:
+   - Purpose
+   - Input (files on disk, expected format)
+   - Output (files on disk, expected format)
+   - Instructions (detailed task, constraints, examples)
+   - Output schema reference (which Pydantic model the output must match)
+3. If new Pydantic schemas are needed, add them to `src/confluence_to_notion/agents/schemas.py`.
+4. Create tests for the new schemas in `tests/unit/test_agent_schemas.py`.
 5. Verify: `uv run ruff check` and `uv run mypy src/` pass.
-6. Report created files.
+6. Report created files and next steps (adding the step to `scripts/discover.sh`).

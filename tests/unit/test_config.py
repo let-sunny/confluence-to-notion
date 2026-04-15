@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from confluence_to_notion.config import Settings
 
-# All fields provided (authenticated Confluence + Notion + Anthropic)
+# All fields provided (authenticated Confluence + Notion)
 _FULL = dict(
     confluence_base_url="https://test.atlassian.net/wiki",
     confluence_email="user@example.com",
