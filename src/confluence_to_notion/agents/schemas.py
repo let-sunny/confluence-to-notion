@@ -65,3 +65,45 @@ class ProposerOutput(BaseModel):
         default_factory=list,
         description="Proposed mapping rules",
     )
+
+
+# --- Final Ruleset (converter input contract) ---
+
+
+class FinalRule(BaseModel):
+    """A confirmed transformation rule ready for the deterministic converter."""
+
+    rule_id: str
+    source_pattern_id: str
+    source_description: str
+    notion_block_type: str
+    mapping_description: str
+    example_input: str
+    example_output: dict[str, Any]
+    confidence: Literal["high", "medium", "low"]
+    enabled: bool = Field(default=True, description="Whether this rule is active")
+
+    @classmethod
+    def from_proposed(cls, proposed: ProposedRule, *, enabled: bool = True) -> "FinalRule":
+        """Promote a ProposedRule to a FinalRule."""
+        return cls(**proposed.model_dump(), enabled=enabled)
+
+
+class FinalRuleset(BaseModel):
+    """The complete set of rules fed into the deterministic converter → output/rules.json."""
+
+    source: str = Field(description="Path to the proposals file this was derived from")
+    rules: list[FinalRule] = Field(default_factory=list)
+
+    @property
+    def enabled_rules(self) -> list[FinalRule]:
+        """Return only active rules."""
+        return [r for r in self.rules if r.enabled]
+
+    @classmethod
+    def from_proposer_output(cls, output: ProposerOutput) -> "FinalRuleset":
+        """Convert ProposerOutput directly to a FinalRuleset (2-agent shortcut)."""
+        return cls(
+            source=output.source_patterns_file,
+            rules=[FinalRule.from_proposed(r) for r in output.rules],
+        )

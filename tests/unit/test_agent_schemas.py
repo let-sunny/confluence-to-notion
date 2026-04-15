@@ -7,6 +7,8 @@ from pydantic import ValidationError
 from confluence_to_notion.agents.schemas import (
     DiscoveryOutput,
     DiscoveryPattern,
+    FinalRule,
+    FinalRuleset,
     ProposedRule,
     ProposerOutput,
 )
@@ -215,3 +217,78 @@ class TestProposerOutput:
         json_str = output.model_dump_json(indent=2)
         parsed = ProposerOutput.model_validate_json(json_str)
         assert parsed == output
+
+
+# --- FinalRule / FinalRuleset ---
+
+
+def _make_proposed_rule(**overrides: object) -> ProposedRule:
+    defaults = dict(
+        rule_id="rule:macro:toc",
+        source_pattern_id="macro:toc",
+        source_description="TOC macro",
+        notion_block_type="table_of_contents",
+        mapping_description="Map TOC",
+        example_input="<x/>",
+        example_output={"type": "table_of_contents"},
+        confidence="high",
+    )
+    return ProposedRule(**{**defaults, **overrides})  # type: ignore[arg-type]
+
+
+class TestFinalRule:
+    def test_from_proposed_rule(self) -> None:
+        proposed = _make_proposed_rule()
+        rule = FinalRule.from_proposed(proposed)
+        assert rule.rule_id == proposed.rule_id
+        assert rule.notion_block_type == proposed.notion_block_type
+        assert rule.enabled is True
+
+    def test_disabled_rule(self) -> None:
+        proposed = _make_proposed_rule()
+        rule = FinalRule.from_proposed(proposed, enabled=False)
+        assert rule.enabled is False
+
+    def test_preserves_all_fields(self) -> None:
+        proposed = _make_proposed_rule(confidence="low")
+        rule = FinalRule.from_proposed(proposed)
+        assert rule.confidence == "low"
+        assert rule.source_pattern_id == proposed.source_pattern_id
+        assert rule.mapping_description == proposed.mapping_description
+        assert rule.example_input == proposed.example_input
+        assert rule.example_output == proposed.example_output
+
+
+class TestFinalRuleset:
+    def test_from_proposer_output(self) -> None:
+        proposer = ProposerOutput(
+            source_patterns_file="output/patterns.json",
+            rules=[_make_proposed_rule(), _make_proposed_rule(rule_id="rule:macro:jira")],
+        )
+        ruleset = FinalRuleset.from_proposer_output(proposer)
+        assert len(ruleset.rules) == 2
+        assert ruleset.source == "output/patterns.json"
+        assert all(r.enabled for r in ruleset.rules)
+
+    def test_empty_rules_allowed(self) -> None:
+        ruleset = FinalRuleset(source="output/patterns.json", rules=[])
+        assert len(ruleset.rules) == 0
+
+    def test_enabled_rules_property(self) -> None:
+        r1 = FinalRule.from_proposed(_make_proposed_rule())
+        r2 = FinalRule.from_proposed(
+            _make_proposed_rule(rule_id="rule:macro:jira"), enabled=False
+        )
+        ruleset = FinalRuleset(source="f.json", rules=[r1, r2])
+        assert len(ruleset.enabled_rules) == 1
+        assert ruleset.enabled_rules[0].rule_id == "rule:macro:toc"
+
+    def test_json_roundtrip(self) -> None:
+        proposer = ProposerOutput(
+            source_patterns_file="output/patterns.json",
+            rules=[_make_proposed_rule()],
+        )
+        ruleset = FinalRuleset.from_proposer_output(proposer)
+        json_str = ruleset.model_dump_json(indent=2)
+        parsed = FinalRuleset.model_validate_json(json_str)
+        assert parsed == ruleset
