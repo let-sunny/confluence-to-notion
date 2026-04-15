@@ -20,22 +20,25 @@ _FETCH_CONCURRENCY = 10
 
 
 class ConfluenceClient:
-    """Async client for Confluence Cloud REST API.
+    """Async client for Confluence REST API (Cloud and Server/DC).
+
+    Supports both authenticated (Cloud/private) and unauthenticated (public wikis
+    like cwiki.apache.org) access. Auth is used only when credentials are configured.
 
     Use as an async context manager to reuse the underlying httpx connection pool:
 
         async with ConfluenceClient(settings) as client:
             page = await client.get_page("12345")
-
-    Can also be used without context manager (creates a new connection per call).
     """
 
     def __init__(self, settings: Settings) -> None:
         self._base = settings.confluence_rest_url
-        self._auth = httpx.BasicAuth(
-            username=settings.confluence_email,
-            password=settings.confluence_api_token,
-        )
+        self._auth: httpx.BasicAuth | None = None
+        if settings.confluence_auth_available:
+            self._auth = httpx.BasicAuth(
+                username=settings.confluence_email or "",
+                password=settings.confluence_api_token or "",
+            )
         self._owned_client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "ConfluenceClient":
@@ -69,6 +72,29 @@ class ConfluenceClient:
         params: dict[str, Any] = {"expand": "body.storage,version,space"}
         data = await self._get(url, params)
         return _parse_page(data)
+
+    async def get_pages(self, page_ids: list[str]) -> list[ConfluencePage]:
+        """Fetch multiple pages by ID concurrently.
+
+        Individual page failures are logged and skipped.
+        """
+        semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
+        results: list[ConfluencePage] = []
+        lock = asyncio.Lock()
+
+        async def _fetch_one(pid: str) -> None:
+            async with semaphore:
+                try:
+                    page = await self.get_page(pid)
+                except (httpx.HTTPStatusError, KeyError) as e:
+                    logger.warning("Skipping page %s: %s", pid, e)
+                    return
+                async with lock:
+                    results.append(page)
+
+        async with self:
+            await asyncio.gather(*[_fetch_one(pid) for pid in page_ids])
+        return results
 
     async def list_pages_in_space(
         self, space_key: str, limit: int = 25
@@ -108,40 +134,64 @@ class ConfluenceClient:
         return collected[:limit]
 
     async def fetch_samples_to_disk(
-        self, space_key: str, out_dir: Path, limit: int = 25
+        self,
+        out_dir: Path,
+        *,
+        space_key: str | None = None,
+        page_ids: list[str] | None = None,
+        limit: int = 25,
     ) -> list[Path]:
-        """Fetch pages from a space and save their XHTML bodies to disk.
+        """Fetch pages and save their XHTML bodies to disk.
 
-        Uses concurrent requests (up to _FETCH_CONCURRENCY) for speed.
-        Individual page failures are logged and skipped.
+        Provide either space_key (lists pages from a space) or page_ids
+        (fetches specific pages). Uses concurrent requests for speed.
         """
+        if not space_key and not page_ids:
+            msg = "Provide either space_key or page_ids"
+            raise ValueError(msg)
+
         out_dir.mkdir(parents=True, exist_ok=True)
-        async with self:
-            pages = await self.list_pages_in_space(space_key, limit=limit)
-            if not pages:
-                logger.warning("No pages found in space '%s'", space_key)
-                return []
 
-            semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
-            saved: list[Path] = []
-            lock = asyncio.Lock()
+        if page_ids:
+            pages = await self.get_pages(page_ids)
+        else:
+            assert space_key is not None
+            async with self:
+                summaries = await self.list_pages_in_space(space_key, limit=limit)
+                if not summaries:
+                    logger.warning("No pages found in space '%s'", space_key)
+                    return []
+                pages = await self._fetch_summaries(summaries)
 
-            async def _fetch_one(summary: ConfluencePageSummary) -> None:
-                async with semaphore:
-                    try:
-                        page = await self.get_page(summary.id)
-                    except (httpx.HTTPStatusError, KeyError) as e:
-                        logger.warning(
-                            "Skipping page %s (%s): %s", summary.id, summary.title, e
-                        )
-                        return
-                    file_path = out_dir / f"{page.id}.xhtml"
-                    file_path.write_text(page.storage_body, encoding="utf-8")
-                    async with lock:
-                        saved.append(file_path)
-
-            await asyncio.gather(*[_fetch_one(s) for s in pages])
+        saved: list[Path] = []
+        for page in pages:
+            file_path = out_dir / f"{page.id}.xhtml"
+            file_path.write_text(page.storage_body, encoding="utf-8")
+            saved.append(file_path)
         return saved
+
+    async def _fetch_summaries(
+        self, summaries: list[ConfluencePageSummary]
+    ) -> list[ConfluencePage]:
+        """Fetch full page data for a list of summaries, concurrently."""
+        semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
+        results: list[ConfluencePage] = []
+        lock = asyncio.Lock()
+
+        async def _fetch_one(summary: ConfluencePageSummary) -> None:
+            async with semaphore:
+                try:
+                    page = await self.get_page(summary.id)
+                except (httpx.HTTPStatusError, KeyError) as e:
+                    logger.warning(
+                        "Skipping page %s (%s): %s", summary.id, summary.title, e
+                    )
+                    return
+                async with lock:
+                    results.append(page)
+
+        await asyncio.gather(*[_fetch_one(s) for s in summaries])
+        return results
 
 
 def _parse_page(data: dict[str, Any]) -> ConfluencePage:

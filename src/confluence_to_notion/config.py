@@ -9,10 +9,10 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
-    # Confluence
+    # Confluence (email + token are optional for public wikis like cwiki.apache.org)
     confluence_base_url: str
-    confluence_email: str
-    confluence_api_token: str
+    confluence_email: str | None = None
+    confluence_api_token: str | None = None
     confluence_api_path: str = "/rest/api"
 
     # Notion
@@ -51,3 +51,8 @@ class Settings(BaseSettings):
     def confluence_rest_url(self) -> str:
         """Full base URL for Confluence REST API calls."""
         return f"{self.confluence_base_url.rstrip('/')}{self.confluence_api_path}"
+
+    @property
+    def confluence_auth_available(self) -> bool:
+        """Whether Confluence credentials are configured."""
+        return bool(self.confluence_email and self.confluence_api_token)

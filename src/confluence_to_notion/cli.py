@@ -31,16 +31,35 @@ def _load_settings() -> Settings:
 
 @app.command()
 def fetch(
-    space: str = typer.Option(..., help="Confluence space key"),
-    limit: int = typer.Option(25, help="Max number of pages to fetch"),
+    space: str | None = typer.Option(None, help="Confluence space key"),
+    pages: str | None = typer.Option(None, help="Comma-separated page IDs"),
+    limit: int = typer.Option(25, help="Max pages when using --space"),
     out_dir: Path = typer.Option(Path("samples"), help="Output directory"),
 ) -> None:
-    """Fetch Confluence pages and save XHTML to disk."""
+    """Fetch Confluence pages and save XHTML to disk.
+
+    Use --space to list pages from a space, or --pages to fetch specific IDs.
+
+    Examples:
+        cli fetch --space KAFKA --limit 10
+        cli fetch --pages 12345,67890,11111
+    """
+    if not space and not pages:
+        console.print("[red]Provide --space or --pages[/red]")
+        raise typer.Exit(code=1)
+
     settings = _load_settings()
     client = ConfluenceClient(settings)
 
+    page_ids = [p.strip() for p in pages.split(",") if p.strip()] if pages else None
+
     async def _run() -> list[Path]:
-        return await client.fetch_samples_to_disk(space, out_dir, limit=limit)
+        return await client.fetch_samples_to_disk(
+            out_dir,
+            space_key=space,
+            page_ids=page_ids,
+            limit=limit,
+        )
 
     try:
         saved = asyncio.run(_run())
@@ -53,7 +72,7 @@ def fetch(
         raise typer.Exit(code=1) from None
 
     if not saved:
-        console.print(f"[yellow]No pages found in space '{space}'[/yellow]")
+        console.print("[yellow]No pages fetched[/yellow]")
     else:
         console.print(f"[green]Saved {len(saved)} pages to {out_dir}[/green]")
         for p in saved:
