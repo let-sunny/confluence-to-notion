@@ -5,22 +5,28 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Configuration for confluence-to-notion, loaded from .env file."""
+    """Configuration for confluence-to-notion, loaded from .env file.
+
+    Fields are optional so that each CLI command only requires what it needs:
+    - `fetch` needs only confluence_base_url
+    - `notion-ping` needs notion_api_token
+    - Agent pipeline needs anthropic_api_key
+    """
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
-    # Confluence (email + token are optional for public wikis like cwiki.apache.org)
-    confluence_base_url: str
+    # Confluence (email + token optional for public wikis like cwiki.apache.org)
+    confluence_base_url: str = "https://cwiki.apache.org/confluence"
     confluence_email: str | None = None
     confluence_api_token: str | None = None
     confluence_api_path: str = "/rest/api"
 
-    # Notion
-    notion_api_token: str
-    notion_root_page_id: str
+    # Notion (optional — only needed for notion-ping, migrate)
+    notion_api_token: str | None = None
+    notion_root_page_id: str | None = None
 
-    # Anthropic
-    anthropic_api_key: str
+    # Anthropic (optional — only needed for agent pipeline)
+    anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-5-20250929"
 
     @field_validator("confluence_base_url")
@@ -41,8 +47,8 @@ class Settings(BaseSettings):
 
     @field_validator("notion_api_token")
     @classmethod
-    def _validate_notion_token(cls, v: str) -> str:
-        if not v.startswith(("ntn_", "secret_")):
+    def _validate_notion_token(cls, v: str | None) -> str | None:
+        if v is not None and not v.startswith(("ntn_", "secret_")):
             msg = "notion_api_token must start with 'ntn_' or 'secret_'"
             raise ValueError(msg)
         return v
@@ -56,3 +62,12 @@ class Settings(BaseSettings):
     def confluence_auth_available(self) -> bool:
         """Whether Confluence credentials are configured."""
         return bool(self.confluence_email and self.confluence_api_token)
+
+    def require_notion(self) -> None:
+        """Raise if Notion credentials are missing."""
+        if not self.notion_api_token:
+            msg = "NOTION_API_TOKEN is required. Set it in .env"
+            raise ValueError(msg)
+        if not self.notion_root_page_id:
+            msg = "NOTION_ROOT_PAGE_ID is required. Set it in .env"
+            raise ValueError(msg)

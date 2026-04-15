@@ -83,6 +83,11 @@ def fetch(
 def notion_ping() -> None:
     """Validate Notion API token by fetching bot user info."""
     settings = _load_settings()
+    try:
+        settings.require_notion()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
     client = NotionClientWrapper(settings)
 
     async def _run() -> bool:
