@@ -1,17 +1,18 @@
 # Agent Rules
 
-Agents are Claude Code subagents, NOT Python modules.
+Agents are Claude Code subagents, each running as an independent `claude -p` session.
+Orchestration is a bash script, NOT a Claude command.
 
 ## Definition
 
 - Each agent is a markdown file at `.claude/agents/<name>.md`
-- The agent file contains: purpose, instructions, expected input/output, and the prompt
+- The agent file contains: purpose, instructions, expected input/output format
 - Agents use Claude Code tools (Read, Write, Bash, Grep, Glob) to do their work
-- Agents do NOT call the Anthropic API directly — Claude Code handles the LLM
+- Each `claude -p` call starts with a **clean context** — no shared state between agents
 
 ## Communication
 
-- Agents communicate via files, not function calls or Python objects
+- Agents communicate via files on disk — NEVER via shared context or memory
 - Input: files on disk (e.g., `samples/*.xhtml`, `output/patterns.json`)
 - Output: files on disk (e.g., `output/patterns.json`, `output/rules.json`)
 - File formats follow JSON schemas defined by Pydantic models in `src/**/schemas.py`
@@ -19,19 +20,13 @@ Agents are Claude Code subagents, NOT Python modules.
 
 ## Orchestration
 
-- Pipeline orchestration lives in `.claude/commands/discover.md`
-- The command spawns subagents sequentially, each reading the previous agent's output
-- Can be run interactively (`/discover`) or automated (`claude -p "/discover samples/"`)
-
-## Execution modes
-
-| Mode | Command | Use case |
-|---|---|---|
-| Interactive | `/discover samples/` | Development, debugging |
-| Automated | `claude -p "/discover samples/"` | Scripts, CI |
-| Scheduled | Routines | Recurring runs |
+- Pipeline orchestration is in `scripts/discover.sh` (bash)
+- The script calls `claude -p` sequentially, one step per agent
+- Flow control is deterministic and visible in code — not LLM judgment
+- Failed steps can be rerun individually without restarting the pipeline
 
 ## Naming
 
 - Agent files: `pattern-discovery.md`, `rule-proposer.md`, etc. (kebab-case)
 - Output files: `patterns.json`, `proposals.json`, etc.
+- Script: `scripts/discover.sh`

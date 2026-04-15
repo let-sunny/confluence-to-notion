@@ -33,6 +33,7 @@ samples/*.xhtml
 
 # Agent pipeline output
 output/*.json
+output/*.log
 !output/.gitkeep
 
 # OS

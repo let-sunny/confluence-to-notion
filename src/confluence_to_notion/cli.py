@@ -105,11 +105,12 @@ def notion_ping() -> None:
 def discover() -> None:
     """Run pattern discovery pipeline.
 
-    This is a convenience hint. The actual pipeline runs via Claude Code subagents:
-        claude -p "/discover samples/"
+    The pipeline runs via bash script orchestrating independent claude -p sessions:
+        bash scripts/discover.sh samples/
     """
-    console.print("[yellow]Discovery runs via Claude Code subagents, not this CLI.[/yellow]")
-    console.print('  claude -p "/discover samples/"')
+    console.print("[yellow]Discovery runs via scripts/discover.sh, not this CLI.[/yellow]")
+    console.print("  bash scripts/discover.sh samples/")
+    console.print("  bash scripts/discover.sh samples/ --from 3  # resume from step 3")
     raise typer.Exit(code=1)
 
 

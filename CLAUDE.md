@@ -7,7 +7,8 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 
 - Python 3.11+
 - Package manager: uv
-- Agents: Claude Code subagents (`.claude/agents/*.md`)
+- Agents: Claude Code subagents (`.claude/agents/*.md`), each runs as independent `claude -p` session
+- Orchestration: bash scripts (`scripts/discover.sh`) — NOT Claude commands
 - Confluence client: httpx (direct REST, no atlassian-python-api)
 - Notion client: notion-client (official SDK)
 - CLI: typer (data prep utilities)
@@ -19,11 +20,10 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 
 ## Architecture Rules
 
-- **CRITICAL**: Agents are Claude Code subagents defined in `.claude/agents/<name>.md` — NOT Python modules
-- **CRITICAL**: Agents communicate via files (e.g., `output/patterns.json`), not Python objects
+- **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<name>.md` — NOT Python modules
+- **CRITICAL**: Orchestration is a bash script (`scripts/discover.sh`), NOT a Claude command. Flow control must be deterministic and visible in code.
+- **CRITICAL**: Each `claude -p` call runs in a clean context. Agents communicate via files only.
 - **CRITICAL**: Never commit secrets. Use `.env` + pydantic-settings
-- **CRITICAL**: Do not use `anthropic` SDK to build agents. Claude Code handles LLM calls.
-- Orchestration lives in `.claude/commands/` (e.g., `discover.md`)
 - `src/` contains only I/O adapters (Confluence, Notion) and the deterministic converter
 - Pydantic models in `schemas.py` define the file-based contracts between agents
 
@@ -50,9 +50,9 @@ uv run cli fetch --space <KEY> --limit <N>   # Fetch Confluence pages to samples
 uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
 uv run cli notion-ping                        # Validate Notion token
 
-# Agent pipeline (Claude Code)
-claude -p "/discover samples/"               # Run full discovery pipeline
-claude -p "/agent pattern-discovery ..."     # Run individual agent
+# Agent pipeline (bash script orchestration)
+bash scripts/discover.sh samples/             # Run full pipeline
+claude -p "..." --agent-file .claude/agents/pattern-discovery.md  # Run single agent
 
 # Development
 uv run pytest                                 # Run tests
