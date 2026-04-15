@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from confluence_to_notion.agents.schemas import (
+    ConfluenceSource,
     DevDecision,
     DevImplementLog,
     DevPlan,
@@ -19,6 +20,7 @@ from confluence_to_notion.agents.schemas import (
     PipelineState,
     ProposedRule,
     ProposerOutput,
+    ScoutOutput,
 )
 
 # --- DiscoveryPattern ---
@@ -642,3 +644,140 @@ class TestPipelineState:
         json_str = state.model_dump_json(indent=2)
         parsed = PipelineState.model_validate_json(json_str)
         assert parsed == state
+
+
+# --- ConfluenceSource / ScoutOutput ---
+
+
+class TestConfluenceSource:
+    def test_valid_source(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://cwiki.apache.org/confluence",
+            space_key="KAFKA",
+            macro_density=0.75,
+            sample_macros=["toc", "code", "jira"],
+            page_count=150,
+            accessible=True,
+        )
+        assert src.wiki_url == "https://cwiki.apache.org/confluence"
+        assert src.space_key == "KAFKA"
+        assert src.macro_density == 0.75
+        assert len(src.sample_macros) == 3
+        assert src.page_count == 150
+        assert src.accessible is True
+
+    def test_required_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfluenceSource()  # type: ignore[call-arg]
+
+    def test_macro_density_must_be_non_negative(self) -> None:
+        with pytest.raises(ValidationError, match="macro_density"):
+            ConfluenceSource(
+                wiki_url="https://example.com",
+                space_key="TEST",
+                macro_density=-0.1,
+                sample_macros=[],
+                page_count=10,
+                accessible=True,
+            )
+
+    def test_macro_density_must_not_exceed_one(self) -> None:
+        with pytest.raises(ValidationError, match="macro_density"):
+            ConfluenceSource(
+                wiki_url="https://example.com",
+                space_key="TEST",
+                macro_density=1.5,
+                sample_macros=[],
+                page_count=10,
+                accessible=True,
+            )
+
+    def test_macro_density_zero_allowed(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://example.com",
+            space_key="TEST",
+            macro_density=0.0,
+            sample_macros=[],
+            page_count=10,
+            accessible=True,
+        )
+        assert src.macro_density == 0.0
+
+    def test_page_count_must_be_non_negative(self) -> None:
+        with pytest.raises(ValidationError, match="page_count"):
+            ConfluenceSource(
+                wiki_url="https://example.com",
+                space_key="TEST",
+                macro_density=0.5,
+                sample_macros=[],
+                page_count=-1,
+                accessible=True,
+            )
+
+    def test_page_count_zero_allowed(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://example.com",
+            space_key="TEST",
+            macro_density=0.0,
+            sample_macros=[],
+            page_count=0,
+            accessible=True,
+        )
+        assert src.page_count == 0
+
+    def test_accessible_bool(self) -> None:
+        src = ConfluenceSource(
+            wiki_url="https://example.com",
+            space_key="TEST",
+            macro_density=0.0,
+            sample_macros=[],
+            page_count=0,
+            accessible=False,
+        )
+        assert src.accessible is False
+
+
+class TestScoutOutput:
+    def test_valid_output(self) -> None:
+        output = ScoutOutput(
+            sources=[
+                ConfluenceSource(
+                    wiki_url="https://cwiki.apache.org/confluence",
+                    space_key="KAFKA",
+                    macro_density=0.8,
+                    sample_macros=["toc", "code"],
+                    page_count=200,
+                    accessible=True,
+                ),
+            ],
+        )
+        assert len(output.sources) == 1
+
+    def test_empty_sources_allowed(self) -> None:
+        output = ScoutOutput(sources=[])
+        assert len(output.sources) == 0
+
+    def test_json_roundtrip(self) -> None:
+        output = ScoutOutput(
+            sources=[
+                ConfluenceSource(
+                    wiki_url="https://cwiki.apache.org/confluence",
+                    space_key="KAFKA",
+                    macro_density=0.8,
+                    sample_macros=["toc", "code"],
+                    page_count=200,
+                    accessible=True,
+                ),
+                ConfluenceSource(
+                    wiki_url="https://wiki.example.com",
+                    space_key="DOCS",
+                    macro_density=0.0,
+                    sample_macros=[],
+                    page_count=50,
+                    accessible=False,
+                ),
+            ],
+        )
+        json_str = output.model_dump_json(indent=2)
+        parsed = ScoutOutput.model_validate_json(json_str)
+        assert parsed == output

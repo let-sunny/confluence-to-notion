@@ -152,6 +152,32 @@ class PipelineState(BaseModel):
         description="Error count history across fix attempts",
     )
 
+# --- Scout Agent Output ---
+
+
+class ConfluenceSource(BaseModel):
+    """A single public Confluence wiki discovered by the scout agent."""
+
+    wiki_url: str = Field(description="Base URL of the Confluence instance")
+    space_key: str = Field(description="Confluence space key")
+    macro_density: float = Field(ge=0, le=1, description="Ratio of macro-rich pages in the space")
+    sample_macros: list[str] = Field(
+        default_factory=list,
+        description="Example macro names found (e.g. 'toc', 'code', 'jira')",
+    )
+    page_count: int = Field(ge=0, description="Number of pages in the space")
+    accessible: bool = Field(description="Whether the wiki is publicly accessible")
+
+
+class ScoutOutput(BaseModel):
+    """Output of the confluence-scout agent → output/sources.json."""
+
+    sources: list[ConfluenceSource] = Field(
+        default_factory=list,
+        description="Discovered Confluence sources",
+    )
+
+
 # --- Discovery Agent Output ---
 
 

@@ -124,7 +124,7 @@ def discover() -> None:
 def validate_output(
     file: Path = typer.Argument(..., help="JSON file to validate"),
     schema: str = typer.Argument(
-        ..., help="Schema name: 'discovery' or 'proposer'"
+        ..., help="Schema name: 'discovery', 'proposer', or 'scout'"
     ),
 ) -> None:
     """Validate an agent output file against its Pydantic schema.
@@ -132,8 +132,13 @@ def validate_output(
     Examples:
         cli validate-output output/patterns.json discovery
         cli validate-output output/proposals.json proposer
+        cli validate-output output/sources.json scout
     """
-    from confluence_to_notion.agents.schemas import DiscoveryOutput, ProposerOutput
+    from confluence_to_notion.agents.schemas import (
+        DiscoveryOutput,
+        ProposerOutput,
+        ScoutOutput,
+    )
 
     if not file.exists():
         console.print(f"[red]File not found: {file}[/red]")
@@ -151,8 +156,15 @@ def validate_output(
         elif schema == "proposer":
             obj_p = ProposerOutput.model_validate_json(raw)
             console.print(f"[green]Valid ProposerOutput: {len(obj_p.rules)} rules[/green]")
+        elif schema == "scout":
+            obj_s = ScoutOutput.model_validate_json(raw)
+            console.print(
+                f"[green]Valid ScoutOutput: {len(obj_s.sources)} sources[/green]"
+            )
         else:
-            console.print(f"[red]Unknown schema '{schema}'. Use: discovery, proposer[/red]")
+            console.print(
+                f"[red]Unknown schema '{schema}'. Use: discovery, proposer, scout[/red]"
+            )
             raise typer.Exit(code=1)
     except ValidationError as e:
         console.print(f"[red]Validation failed for {file}:[/red]")
