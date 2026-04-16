@@ -362,6 +362,12 @@ def _convert_macro(
     if macro_name in _PANEL_STYLES:
         return _convert_panel_macro(elem, macro_name, ctx)
 
+    # Include / excerpt-include → Notion synced block
+    if macro_name in ("include", "excerpt-include"):
+        page_title = _extract_include_page_title(elem)
+        if page_title:
+            return _convert_include_macro(elem, macro_name, page_title, ctx)
+
     # Check resolution store for pre-resolved blocks
     if ctx.store:
         entry = ctx.store.lookup(f"macro:{macro_name}")
@@ -382,6 +388,57 @@ def _convert_macro(
     if text:
         return [_paragraph([_text_seg(f"[{macro_name}] {text}")])]
     return [_paragraph([_text_seg(f"[{macro_name}]")])]
+
+
+def _extract_include_page_title(elem: ET.Element) -> str:
+    """Extract the referenced page title from an include/excerpt-include macro."""
+    for child in elem:
+        if _local_tag(child) != "parameter":
+            continue
+        for link in child:
+            if _local_tag(link) != "link":
+                continue
+            for page in link:
+                if _local_tag(page) == "page":
+                    title = page.get(
+                        f"{{{_NS['ri']}}}content-title", ""
+                    ) or page.get("ri:content-title", "")
+                    if title:
+                        return title
+    return ""
+
+
+def _convert_include_macro(
+    elem: ET.Element,
+    macro_name: str,
+    page_title: str,
+    ctx: _ConversionContext,
+) -> list[dict[str, Any]]:
+    """Convert include/excerpt-include to a synced_block reference or placeholder."""
+    if ctx.store:
+        entry = ctx.store.lookup(f"synced_block:{page_title}")
+        if entry and "original_block_id" in entry.value:
+            return [
+                {
+                    "type": "synced_block",
+                    "synced_block": {
+                        "synced_from": {
+                            "type": "block_id",
+                            "block_id": entry.value["original_block_id"],
+                        },
+                    },
+                }
+            ]
+
+    ctx.unresolved.append(
+        UnresolvedItem(
+            kind="synced_block",
+            identifier=page_title,
+            source_page_id=ctx.page_id,
+            context_xhtml=ET.tostring(elem, encoding="unicode"),
+        )
+    )
+    return [_paragraph([_text_seg(f"[{macro_name}: {page_title}]")])]
 
 
 def _convert_panel_macro(

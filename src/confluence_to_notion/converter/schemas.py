@@ -39,7 +39,7 @@ class UnresolvedItem(BaseModel):
     Collected during conversion and processed afterwards by the resolver.
     """
 
-    kind: Literal["macro", "jira_server", "page_link"] = Field(
+    kind: Literal["macro", "jira_server", "page_link", "synced_block"] = Field(
         description="Category of the unresolved element",
     )
     identifier: str = Field(

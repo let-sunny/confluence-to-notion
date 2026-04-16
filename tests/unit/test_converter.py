@@ -758,3 +758,111 @@ class TestResolvedConversion:
         result = convert_page(xhtml, _default_ruleset())
         assert result.blocks[0]["type"] == "paragraph"
         assert len(result.unresolved) == 1
+
+
+# --- Include / excerpt-include → synced block ---
+
+
+class TestMacroIncludeSyncedBlock:
+    """include / excerpt-include macros map to Notion synced_block references."""
+
+    @staticmethod
+    def _include_xhtml(macro_name: str, page_title: str) -> str:
+        return (
+            f'<ac:structured-macro ac:name="{macro_name}">'
+            '<ac:parameter ac:name="">'
+            f'<ac:link><ri:page ri:content-title="{page_title}" /></ac:link>'
+            "</ac:parameter>"
+            "</ac:structured-macro>"
+        )
+
+    def test_resolved_include_emits_synced_block(self, tmp_path: Path) -> None:
+        """Include with resolved store entry → synced_block referencing original block_id."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="synced_block:Source Page",
+            resolved_by="notion_migration",
+            value={"original_block_id": "abc123def456"},
+        )
+        xhtml = self._include_xhtml("include", "Source Page")
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0] == {
+            "type": "synced_block",
+            "synced_block": {
+                "synced_from": {"type": "block_id", "block_id": "abc123def456"},
+            },
+        }
+        assert result.unresolved == []
+
+    def test_resolved_excerpt_include_emits_synced_block(self, tmp_path: Path) -> None:
+        """excerpt-include with resolved store entry → synced_block reference."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="synced_block:Source Page",
+            resolved_by="notion_migration",
+            value={"original_block_id": "xyz789"},
+        )
+        xhtml = self._include_xhtml("excerpt-include", "Source Page")
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0] == {
+            "type": "synced_block",
+            "synced_block": {
+                "synced_from": {"type": "block_id", "block_id": "xyz789"},
+            },
+        }
+        assert result.unresolved == []
+
+    def test_unresolved_include_emits_placeholder_and_unresolved(self) -> None:
+        """Include without store entry → placeholder paragraph + synced_block unresolved."""
+        xhtml = self._include_xhtml("include", "Missing Page")
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "paragraph"
+        text = result.blocks[0]["paragraph"]["rich_text"][0]["text"]["content"]
+        assert text == "[include: Missing Page]"
+
+        assert len(result.unresolved) == 1
+        item = result.unresolved[0]
+        assert item.kind == "synced_block"
+        assert item.identifier == "Missing Page"
+        assert item.source_page_id == "pg-1"
+
+    def test_unresolved_excerpt_include_emits_placeholder_and_unresolved(self) -> None:
+        """excerpt-include without store entry → placeholder + synced_block unresolved."""
+        xhtml = self._include_xhtml("excerpt-include", "Missing Page")
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-2")
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "paragraph"
+        text = result.blocks[0]["paragraph"]["rich_text"][0]["text"]["content"]
+        assert text == "[excerpt-include: Missing Page]"
+
+        assert len(result.unresolved) == 1
+        item = result.unresolved[0]
+        assert item.kind == "synced_block"
+        assert item.identifier == "Missing Page"
+        assert item.source_page_id == "pg-2"
+
+    def test_include_page_title_parsed_from_ac_link_ri_page(self, tmp_path: Path) -> None:
+        """Page title is extracted from <ac:link><ri:page ri:content-title='…'/></ac:link>."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="synced_block:Architecture Overview",
+            resolved_by="notion_migration",
+            value={"original_block_id": "block-arch-001"},
+        )
+        xhtml = self._include_xhtml("include", "Architecture Overview")
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "synced_block"
+        assert (
+            result.blocks[0]["synced_block"]["synced_from"]["block_id"]
+            == "block-arch-001"
+        )
+        assert result.unresolved == []
