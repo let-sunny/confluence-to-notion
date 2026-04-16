@@ -297,7 +297,11 @@ class EvalMatchResult(BaseModel):
     actual_ids: list[str] = Field(description="IDs found in the actual output")
     missing_ids: list[str] = Field(description="Expected IDs not found in actual output")
     extra_ids: list[str] = Field(description="Actual IDs not in expected output")
-    score: float = Field(ge=0, le=1, description="Match score (0.0 to 1.0)")
+    recall: float = Field(ge=0, le=1, description="Fraction of expected IDs found (0.0 to 1.0)")
+    precision: float = Field(
+        ge=0, le=1, description="Fraction of actual IDs that were expected (0.0 to 1.0)"
+    )
+    score: float = Field(ge=0, le=1, description="F1 score — harmonic mean of recall and precision")
 
 
 class EvalReport(BaseModel):

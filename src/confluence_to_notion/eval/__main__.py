@@ -3,7 +3,6 @@
 Usage: uv run python -m confluence_to_notion.eval <output_dir> <fixture_dir> <results_dir>
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -34,13 +33,15 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     timestamp_safe = report.timestamp.replace(":", "-").replace("+", "_")
     result_file = results_dir / f"{timestamp_safe}.json"
-    result_file.write_text(json.dumps(report.model_dump(), indent=2))
+    result_file.write_text(report.model_dump_json(indent=2))
 
     # Print summary table
     table = Table(title="Eval Results")
     table.add_column("Agent", style="cyan")
     table.add_column("Status", style="bold")
-    table.add_column("Score", justify="right")
+    table.add_column("Recall", justify="right")
+    table.add_column("Precision", justify="right")
+    table.add_column("F1", justify="right")
     table.add_column("Missing", justify="right")
     table.add_column("Extra", justify="right")
 
@@ -49,6 +50,8 @@ def main() -> None:
         table.add_row(
             r.agent_name,
             f"[{status_style}]{r.status}[/{status_style}]",
+            f"{r.recall:.1%}",
+            f"{r.precision:.1%}",
             f"{r.score:.1%}",
             str(len(r.missing_ids)),
             str(len(r.extra_ids)),

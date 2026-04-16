@@ -1,5 +1,9 @@
 """Unit tests for eval framework: schemas and comparator logic."""
 
+from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,7 +15,12 @@ from confluence_to_notion.agents.schemas import (
     ProposedRule,
     ProposerOutput,
 )
-from confluence_to_notion.eval.comparator import compare_discovery, compare_proposer
+from confluence_to_notion.eval.comparator import (
+    compare_discovery,
+    compare_proposer,
+    detect_prompt_changes,
+    run_eval,
+)
 
 # --- Helpers ---
 
@@ -67,9 +76,13 @@ class TestEvalMatchResult:
             actual_ids=["a", "b"],
             missing_ids=[],
             extra_ids=[],
+            recall=1.0,
+            precision=1.0,
             score=1.0,
         )
         assert r.status == "pass"
+        assert r.recall == 1.0
+        assert r.precision == 1.0
         assert r.score == 1.0
 
     def test_valid_fail(self) -> None:
@@ -80,6 +93,8 @@ class TestEvalMatchResult:
             actual_ids=["b"],
             missing_ids=["a"],
             extra_ids=["b"],
+            recall=0.0,
+            precision=0.0,
             score=0.0,
         )
         assert r.status == "fail"
@@ -93,6 +108,8 @@ class TestEvalMatchResult:
             actual_ids=["a", "c"],
             missing_ids=["b"],
             extra_ids=["c"],
+            recall=0.5,
+            precision=0.5,
             score=0.5,
         )
         assert r.status == "partial"
@@ -106,6 +123,8 @@ class TestEvalMatchResult:
                 actual_ids=[],
                 missing_ids=[],
                 extra_ids=[],
+                recall=0.0,
+                precision=0.0,
                 score=0.0,
             )
 
@@ -118,6 +137,8 @@ class TestEvalMatchResult:
                 actual_ids=[],
                 missing_ids=[],
                 extra_ids=[],
+                recall=1.0,
+                precision=1.0,
                 score=1.5,
             )
         with pytest.raises(ValidationError, match="score"):
@@ -128,6 +149,8 @@ class TestEvalMatchResult:
                 actual_ids=[],
                 missing_ids=[],
                 extra_ids=[],
+                recall=0.0,
+                precision=0.0,
                 score=-0.1,
             )
 
@@ -139,6 +162,8 @@ class TestEvalMatchResult:
             actual_ids=["a", "b", "d"],
             missing_ids=["c"],
             extra_ids=["d"],
+            recall=0.67,
+            precision=0.67,
             score=0.67,
         )
         json_str = r.model_dump_json(indent=2)
@@ -158,6 +183,8 @@ class TestEvalReport:
             actual_ids=["a"],
             missing_ids=[],
             extra_ids=[],
+            recall=1.0,
+            precision=1.0,
             score=1.0,
         )
         report = EvalReport(
@@ -181,6 +208,8 @@ class TestEvalReport:
                     actual_ids=["a"],
                     missing_ids=[],
                     extra_ids=[],
+                    recall=1.0,
+                    precision=1.0,
                     score=1.0,
                 ),
                 EvalMatchResult(
@@ -190,6 +219,8 @@ class TestEvalReport:
                     actual_ids=[],
                     missing_ids=["a"],
                     extra_ids=[],
+                    recall=0.0,
+                    precision=1.0,
                     score=0.0,
                 ),
             ],
@@ -217,7 +248,9 @@ class TestEvalReport:
                     actual_ids=["a"],
                     missing_ids=["b"],
                     extra_ids=[],
-                    score=0.5,
+                    recall=0.5,
+                    precision=1.0,
+                    score=0.67,
                 ),
             ],
             overall_pass=False,
@@ -236,6 +269,8 @@ class TestCompareDiscovery:
         actual = _make_discovery("macro:toc", "macro:code")
         result = compare_discovery(actual, expected)
         assert result.status == "pass"
+        assert result.recall == 1.0
+        assert result.precision == 1.0
         assert result.score == 1.0
         assert result.missing_ids == []
         assert result.extra_ids == []
@@ -246,8 +281,9 @@ class TestCompareDiscovery:
         actual = _make_discovery("macro:toc", "element:ac-link")
         result = compare_discovery(actual, expected)
         assert result.status == "partial"
+        assert result.recall == pytest.approx(2 / 3)
+        assert result.precision == 1.0
         assert 0 < result.score < 1
-        assert result.score == pytest.approx(2 / 3)
         assert result.missing_ids == ["macro:code"]
         assert result.extra_ids == []
 
@@ -256,6 +292,8 @@ class TestCompareDiscovery:
         actual = _make_discovery("element:ac-link", "formatting:bold")
         result = compare_discovery(actual, expected)
         assert result.status == "fail"
+        assert result.recall == 0.0
+        assert result.precision == 0.0
         assert result.score == 0.0
         assert sorted(result.missing_ids) == ["macro:code", "macro:toc"]
         assert sorted(result.extra_ids) == ["element:ac-link", "formatting:bold"]
@@ -264,8 +302,9 @@ class TestCompareDiscovery:
         expected = _make_discovery("macro:toc")
         actual = _make_discovery("macro:toc", "macro:code")
         result = compare_discovery(actual, expected)
-        assert result.status == "pass"
-        assert result.score == 1.0
+        assert result.status == "partial"  # precision < 1.0
+        assert result.recall == 1.0
+        assert result.precision == pytest.approx(0.5)
         assert result.missing_ids == []
         assert result.extra_ids == ["macro:code"]
 
@@ -279,6 +318,8 @@ class TestCompareProposer:
         actual = _make_proposer("rule:macro:toc", "rule:macro:code")
         result = compare_proposer(actual, expected)
         assert result.status == "pass"
+        assert result.recall == 1.0
+        assert result.precision == 1.0
         assert result.score == 1.0
         assert result.agent_name == "rule-proposer"
 
@@ -287,7 +328,8 @@ class TestCompareProposer:
         actual = _make_proposer("rule:macro:toc")
         result = compare_proposer(actual, expected)
         assert result.status == "partial"
-        assert result.score == pytest.approx(0.5)
+        assert result.recall == pytest.approx(0.5)
+        assert result.precision == 1.0
         assert result.missing_ids == ["rule:macro:code"]
 
     def test_no_match(self) -> None:
@@ -295,12 +337,82 @@ class TestCompareProposer:
         actual = _make_proposer("rule:element:ac-link")
         result = compare_proposer(actual, expected)
         assert result.status == "fail"
+        assert result.recall == 0.0
+        assert result.precision == 0.0
         assert result.score == 0.0
 
     def test_extra_rules_in_actual(self) -> None:
         expected = _make_proposer("rule:macro:toc")
         actual = _make_proposer("rule:macro:toc", "rule:macro:code")
         result = compare_proposer(actual, expected)
-        assert result.status == "pass"
-        assert result.score == 1.0
+        assert result.status == "partial"  # precision < 1.0
+        assert result.recall == 1.0
+        assert result.precision == pytest.approx(0.5)
         assert result.extra_ids == ["rule:macro:code"]
+
+
+# --- detect_prompt_changes ---
+
+
+class TestDetectPromptChanges:
+    @patch("confluence_to_notion.eval.comparator.subprocess.run")
+    def test_returns_true_when_files_changed(self, mock_run: Any) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ".claude/agents/discover/pattern-discovery.md\n"
+        assert detect_prompt_changes() is True
+
+    @patch("confluence_to_notion.eval.comparator.subprocess.run")
+    def test_returns_false_when_no_changes(self, mock_run: Any) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        assert detect_prompt_changes() is False
+
+    @patch("confluence_to_notion.eval.comparator.subprocess.run")
+    def test_returns_false_on_git_error(self, mock_run: Any) -> None:
+        mock_run.return_value.returncode = 128
+        mock_run.return_value.stdout = ""
+        assert detect_prompt_changes() is False
+
+    @patch("confluence_to_notion.eval.comparator.subprocess.run", side_effect=FileNotFoundError)
+    def test_returns_false_when_git_not_found(self, mock_run: Any) -> None:
+        assert detect_prompt_changes() is False
+
+
+# --- run_eval ---
+
+FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "eval"
+
+
+class TestRunEval:
+    @staticmethod
+    def _setup_output_dir(tmp_path: Path) -> Path:
+        """Copy fixture files as 'actual' output (patterns.json, proposals.json)."""
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        (output_dir / "patterns.json").write_text(
+            (FIXTURE_DIR / "expected_patterns.json").read_text()
+        )
+        (output_dir / "proposals.json").write_text(
+            (FIXTURE_DIR / "expected_proposals.json").read_text()
+        )
+        return output_dir
+
+    @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
+    def test_run_eval_perfect_match(self, mock_detect: Any, tmp_path: Path) -> None:
+        """When actual == expected, all agents pass."""
+        output_dir = self._setup_output_dir(tmp_path)
+        report = run_eval(output_dir, FIXTURE_DIR)
+        assert report.overall_pass is True
+        assert len(report.results) == 2
+        assert all(r.status == "pass" for r in report.results)
+        assert report.prompt_changed is False
+
+    @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=True)
+    def test_run_eval_detects_prompt_changes(self, mock_detect: Any, tmp_path: Path) -> None:
+        output_dir = self._setup_output_dir(tmp_path)
+        report = run_eval(output_dir, FIXTURE_DIR)
+        assert report.prompt_changed is True
+
+    def test_run_eval_missing_file_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            run_eval(tmp_path, FIXTURE_DIR)
