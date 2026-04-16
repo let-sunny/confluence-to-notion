@@ -22,7 +22,7 @@ def _ruleset(rules: list[dict[str, Any]] | None = None) -> FinalRuleset:
 
 
 def _default_ruleset() -> FinalRuleset:
-    """A ruleset containing all 8 rules from the actual proposals.json."""
+    """A ruleset containing all rules from the actual proposals.json."""
     return _ruleset(
         [
             {
@@ -73,6 +73,26 @@ def _default_ruleset() -> FinalRuleset:
                 "mapping_description": "Map pre",
                 "example_input": "<x/>",
                 "example_output": {"type": "code"},
+                "confidence": "high",
+            },
+            {
+                "rule_id": "rule:macro:code",
+                "source_pattern_id": "macro:code",
+                "source_description": "Code macro",
+                "notion_block_type": "code",
+                "mapping_description": "Map code macro to code block",
+                "example_input": "<x/>",
+                "example_output": {"type": "code"},
+                "confidence": "high",
+            },
+            {
+                "rule_id": "rule:macro:expand",
+                "source_pattern_id": "macro:expand",
+                "source_description": "Expand macro",
+                "notion_block_type": "toggle",
+                "mapping_description": "Map expand macro to toggle block",
+                "example_input": "<x/>",
+                "example_output": {"type": "toggle"},
                 "confidence": "high",
             },
         ]
@@ -254,6 +274,200 @@ class TestMacroInfo:
         blocks = convert_page(xhtml, _default_ruleset())
         assert blocks[0]["callout"]["icon"]["emoji"] == emoji
         assert blocks[0]["callout"]["color"] == color
+
+
+class TestMacroCode:
+    def test_code_macro_with_language(self) -> None:
+        """Code macro with language param produces a Notion code block."""
+        xhtml = (
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">python</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[print('hello')]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "python"
+        assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "print('hello')"
+
+    def test_code_macro_no_language(self) -> None:
+        """Code macro without language defaults to 'plain text'."""
+        xhtml = (
+            '<ac:structured-macro ac:name="code">'
+            "<ac:plain-text-body><![CDATA[some code]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "plain text"
+
+    def test_noformat_macro(self) -> None:
+        """noformat macro produces a code block with 'plain text' language."""
+        xhtml = (
+            '<ac:structured-macro ac:name="noformat">'
+            "<ac:plain-text-body><![CDATA[raw text]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "plain text"
+        assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "raw text"
+
+
+class TestNestedMacros:
+    def test_info_with_nested_code(self) -> None:
+        """Info panel containing a code macro → callout with code block child."""
+        xhtml = (
+            '<ac:structured-macro ac:name="info">'
+            "<ac:rich-text-body>"
+            "<p>Setup instructions:</p>"
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">bash</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[pip install pkg]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        callout = blocks[0]["callout"]
+        assert callout["rich_text"][0]["text"]["content"] == "Setup instructions:"
+        assert "children" in callout
+        children = callout["children"]
+        assert len(children) == 1
+        assert children[0]["type"] == "code"
+        assert children[0]["code"]["language"] == "bash"
+        assert children[0]["code"]["rich_text"][0]["text"]["content"] == "pip install pkg"
+
+    def test_expand_basic(self) -> None:
+        """Expand macro with <p> → toggle block with title from ac:parameter."""
+        xhtml = (
+            '<ac:structured-macro ac:name="expand">'
+            '<ac:parameter ac:name="title">Click to expand</ac:parameter>'
+            "<ac:rich-text-body>"
+            "<p>Hidden content here</p>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Click to expand"
+        assert "children" in toggle
+        children = toggle["children"]
+        assert len(children) == 1
+        assert children[0]["type"] == "paragraph"
+        assert children[0]["paragraph"]["rich_text"][0]["text"]["content"] == "Hidden content here"
+
+    def test_expand_with_nested_info(self) -> None:
+        """Expand containing an info panel → toggle with callout child (2+ level nesting)."""
+        xhtml = (
+            '<ac:structured-macro ac:name="expand">'
+            '<ac:parameter ac:name="title">Details</ac:parameter>'
+            "<ac:rich-text-body>"
+            '<ac:structured-macro ac:name="info">'
+            "<ac:rich-text-body><p>Important note</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Details"
+        children = toggle["children"]
+        assert len(children) == 1
+        assert children[0]["type"] == "callout"
+        assert children[0]["callout"]["rich_text"][0]["text"]["content"] == "Important note"
+
+    def test_expand_with_nested_code(self) -> None:
+        """Expand containing a code macro → toggle with code block child."""
+        xhtml = (
+            '<ac:structured-macro ac:name="expand">'
+            '<ac:parameter ac:name="title">Show code</ac:parameter>'
+            "<ac:rich-text-body>"
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">java</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[System.out.println();]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Show code"
+        children = toggle["children"]
+        assert len(children) == 1
+        assert children[0]["type"] == "code"
+        assert children[0]["code"]["language"] == "java"
+        assert children[0]["code"]["rich_text"][0]["text"]["content"] == "System.out.println();"
+
+    def test_three_level_expand_info_code(self) -> None:
+        """Expand > info > code → toggle > callout > code (3-level nesting)."""
+        xhtml = (
+            '<ac:structured-macro ac:name="expand">'
+            '<ac:parameter ac:name="title">Setup</ac:parameter>'
+            "<ac:rich-text-body>"
+            '<ac:structured-macro ac:name="info">'
+            "<ac:rich-text-body>"
+            "<p>Install steps:</p>"
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">bash</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[npm install]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle_children = blocks[0]["toggle"]["children"]
+        assert len(toggle_children) == 1
+        assert toggle_children[0]["type"] == "callout"
+        callout = toggle_children[0]["callout"]
+        assert callout["rich_text"][0]["text"]["content"] == "Install steps:"
+        assert "children" in callout
+        callout_children = callout["children"]
+        assert len(callout_children) == 1
+        assert callout_children[0]["type"] == "code"
+        assert callout_children[0]["code"]["language"] == "bash"
+        assert callout_children[0]["code"]["rich_text"][0]["text"]["content"] == "npm install"
+
+    def test_panel_with_nested_panel(self) -> None:
+        """Warning panel containing info panel → callout with callout child."""
+        xhtml = (
+            '<ac:structured-macro ac:name="warning">'
+            "<ac:rich-text-body>"
+            "<p>Be careful:</p>"
+            '<ac:structured-macro ac:name="info">'
+            "<ac:rich-text-body><p>See docs for details</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        outer = blocks[0]["callout"]
+        assert outer["icon"]["emoji"] == "\u26a0\ufe0f"
+        assert outer["color"] == "yellow_background"
+        assert outer["rich_text"][0]["text"]["content"] == "Be careful:"
+        assert "children" in outer
+        children = outer["children"]
+        assert len(children) == 1
+        assert children[0]["type"] == "callout"
+        inner = children[0]["callout"]
+        assert inner["icon"]["emoji"] == "\u2139\ufe0f"
+        assert inner["color"] == "blue_background"
+        assert inner["rich_text"][0]["text"]["content"] == "See docs for details"
 
 
 # --- Confluence Elements ---
