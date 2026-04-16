@@ -25,6 +25,16 @@ done
 
 mkdir -p "$OUTPUT_DIR"
 
+check_output() {
+    local file="$1"
+    local step_name="$2"
+    if [[ ! -f "$file" ]]; then
+        echo "[ERROR] Step '$step_name' did not produce expected output: $file"
+        echo "        Check the log: ${OUTPUT_DIR}/${step_name}.log"
+        exit 1
+    fi
+}
+
 run_step() {
     local step_num="$1"
     local step_name="$2"
@@ -37,9 +47,13 @@ run_step() {
     fi
 
     echo "==> Step $step_num: $step_name"
-    claude -p "$prompt" \
+    if ! claude -p "$prompt" \
         --allowedTools "Read,Write,Bash,Glob,Grep,Edit" \
-        2>&1 | tee "$OUTPUT_DIR/${step_name}.log"
+        2>&1 | tee "$OUTPUT_DIR/${step_name}.log"; then
+        echo "[ERROR] Step $step_num ($step_name) failed."
+        echo "        Log: ${OUTPUT_DIR}/${step_name}.log"
+        exit 1
+    fi
 
     echo "    Done: $OUTPUT_DIR/"
 }
@@ -66,6 +80,10 @@ run_step 1 "pattern-discovery" \
 
 Analyze the XHTML files in ${SAMPLES_DIR} and write discovered patterns to ${OUTPUT_DIR}/patterns.json"
 
+if [[ "$FROM_STEP" -le 1 ]]; then
+    check_output "${OUTPUT_DIR}/patterns.json" "pattern-discovery"
+fi
+
 # Step 2: Rule Proposer
 run_step 2 "rule-proposer" \
     ".claude/agents/discover/rule-proposer.md" \
@@ -73,21 +91,35 @@ run_step 2 "rule-proposer" \
 
 Read ${OUTPUT_DIR}/patterns.json and propose transformation rules. Write to ${OUTPUT_DIR}/proposals.json"
 
+if [[ "$FROM_STEP" -le 2 ]]; then
+    check_output "${OUTPUT_DIR}/proposals.json" "rule-proposer"
+fi
+
 # Step 3: Finalize rules (2-agent shortcut: proposals → rules.json)
 # When critic/arbitrator agents are added, this step will be replaced by steps 3+4.
 if [[ "$FROM_STEP" -le 3 ]]; then
     echo "==> Step 3: finalize (proposals → rules.json)"
-    uv run cli finalize "${OUTPUT_DIR}/proposals.json" --out "${OUTPUT_DIR}/rules.json"
+    if ! uv run cli finalize "${OUTPUT_DIR}/proposals.json" --out "${OUTPUT_DIR}/rules.json"; then
+        echo "[ERROR] Step 3 (finalize) failed."
+        echo "        Input: ${OUTPUT_DIR}/proposals.json"
+        exit 1
+    fi
+    check_output "${OUTPUT_DIR}/rules.json" "finalize"
     echo "    Done: ${OUTPUT_DIR}/rules.json"
 fi
 
 # Step 4: Convert XHTML → Notion blocks
 if [[ "$FROM_STEP" -le 4 ]]; then
     echo "==> Step 4: convert (XHTML → Notion blocks)"
-    uv run cli convert \
+    if ! uv run cli convert \
         --rules "${OUTPUT_DIR}/rules.json" \
         --input "${SAMPLES_DIR}" \
-        --output "${OUTPUT_DIR}/converted"
+        --output "${OUTPUT_DIR}/converted"; then
+        echo "[ERROR] Step 4 (convert) failed."
+        echo "        Rules: ${OUTPUT_DIR}/rules.json"
+        echo "        Input: ${SAMPLES_DIR}"
+        exit 1
+    fi
     echo "    Done: ${OUTPUT_DIR}/converted/"
 fi
 
