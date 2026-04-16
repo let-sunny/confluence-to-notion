@@ -13,6 +13,8 @@ from rich.console import Console
 
 from confluence_to_notion.config import Settings
 from confluence_to_notion.confluence.client import ConfluenceClient
+from confluence_to_notion.confluence.schemas import PageTreeNode
+from confluence_to_notion.converter.resolution import ResolutionStore
 from confluence_to_notion.notion.client import NotionClientWrapper
 
 app = typer.Typer(help="confluence-to-notion: auto-discover transformation rules")
@@ -397,6 +399,81 @@ def migrate(
 
     if failed > 0:
         raise typer.Exit(code=1)
+
+
+@app.command(name="migrate-tree")
+def migrate_tree(
+    tree: Path = typer.Option(
+        Path("output/page-tree.json"), "--tree", help="Path to page-tree.json"
+    ),
+    target: str | None = typer.Option(
+        None,
+        "--target",
+        help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)",
+    ),
+    resolution_out: Path = typer.Option(
+        Path("output/resolution.json"),
+        "--resolution-out",
+        help="Where to persist title→Notion page ID mapping",
+    ),
+) -> None:
+    """Create an empty Notion page hierarchy mirroring a Confluence tree.
+
+    Reads a page-tree.json produced by ``fetch-tree``, creates an empty Notion
+    page for each node under --target (or NOTION_ROOT_PAGE_ID), and persists
+    the resulting ``title → notion_page_id`` mapping to the resolution store
+    so that later conversion passes can resolve internal page links.
+    """
+    if not tree.exists():
+        console.print(f"[red]Tree file not found: {tree}[/red]")
+        raise typer.Exit(code=1)
+
+    settings = _load_settings()
+    parent_id = target or settings.notion_root_page_id
+    if not parent_id:
+        console.print(
+            "[red]No target page ID. Use --target or set NOTION_ROOT_PAGE_ID in .env[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        settings.require_notion()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    try:
+        tree_node = PageTreeNode.model_validate_json(tree.read_text(encoding="utf-8"))
+    except ValidationError as e:
+        console.print(f"[red]Invalid tree file: {e.error_count()} errors[/red]")
+        for err in e.errors():
+            loc = " → ".join(str(loc) for loc in err["loc"])
+            console.print(f"  [red]• {loc}: {err['msg']}[/red]")
+        raise typer.Exit(code=1) from None
+
+    client = NotionClientWrapper(settings)
+
+    async def _run() -> dict[str, str]:
+        return await client.create_page_tree(parent_id=parent_id, tree=tree_node)
+
+    try:
+        mapping = asyncio.run(_run())
+    except APIResponseError as e:
+        console.print(f"[red]Notion API error {e.status} — {e.body}[/red]")
+        raise typer.Exit(code=1) from None
+
+    store = ResolutionStore(resolution_out)
+    for title, notion_page_id in mapping.items():
+        store.add(
+            key=f"page_link:{title}",
+            resolved_by="notion_migration",
+            value={"notion_page_id": notion_page_id},
+        )
+    store.save()
+
+    console.print(
+        f"[green]Created {len(mapping)} Notion pages → {resolution_out}[/green]"
+    )
 
 
 def _extract_title(blocks: list[dict[str, Any]], *, fallback: str) -> str:
