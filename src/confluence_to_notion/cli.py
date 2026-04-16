@@ -3,9 +3,11 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
+from notion_client import APIResponseError
 from pydantic import ValidationError
 from rich.console import Console
 
@@ -260,10 +262,106 @@ def convert(
 
 
 @app.command()
-def migrate() -> None:
-    """Upload converted pages to Notion. (Day 4)"""
-    console.print("[yellow]Not implemented yet[/yellow]")
-    raise typer.Exit(code=1)
+def migrate(
+    rules_file: Path = typer.Option(
+        Path("output/rules.json"), "--rules", help="Path to rules.json"
+    ),
+    input_dir: Path = typer.Option(
+        Path("samples"), "--input", help="Directory of XHTML files"
+    ),
+    target: str | None = typer.Option(
+        None, "--target", help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)"
+    ),
+) -> None:
+    """Convert XHTML pages and publish them to Notion.
+
+    Examples:
+        cli migrate --rules output/rules.json --input samples/ --target <page-id>
+        cli migrate  # uses defaults + NOTION_ROOT_PAGE_ID from .env
+    """
+    from confluence_to_notion.agents.schemas import FinalRuleset
+    from confluence_to_notion.converter.converter import convert_page
+
+    # Validate inputs
+    if not rules_file.exists():
+        console.print(f"[red]Rules file not found: {rules_file}[/red]")
+        raise typer.Exit(code=1)
+    if not input_dir.exists():
+        console.print(f"[red]Input directory not found: {input_dir}[/red]")
+        raise typer.Exit(code=1)
+
+    settings = _load_settings()
+    parent_id = target or settings.notion_root_page_id
+    if not parent_id:
+        console.print(
+            "[red]No target page ID. Use --target or set NOTION_ROOT_PAGE_ID in .env[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        ruleset = FinalRuleset.model_validate_json(rules_file.read_text())
+    except ValidationError as e:
+        console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
+        raise typer.Exit(code=1) from None
+
+    xhtml_files = sorted(input_dir.glob("*.xhtml"))
+    if not xhtml_files:
+        console.print(f"[yellow]No .xhtml files found in {input_dir}[/yellow]")
+        raise typer.Exit(code=1)
+
+    try:
+        settings.require_notion()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    client = NotionClientWrapper(settings)
+    succeeded = 0
+    failed = 0
+
+    from rich.progress import Progress
+
+    with Progress(console=console) as progress:
+        task = progress.add_task("Migrating pages...", total=len(xhtml_files))
+
+        for xhtml_path in xhtml_files:
+            try:
+                xhtml = xhtml_path.read_text()
+                blocks = convert_page(xhtml, ruleset)
+
+                # Extract title from first heading block, fallback to filename stem
+                title = _extract_title(blocks, fallback=xhtml_path.stem)
+
+                asyncio.run(client.create_page(
+                    parent_id=parent_id, title=title, blocks=blocks
+                ))
+                succeeded += 1
+                console.print(f"  [green]{xhtml_path.name}[/green] → {title}")
+            except APIResponseError as e:
+                failed += 1
+                console.print(
+                    f"  [red]{xhtml_path.name}: Notion API error {e.status} — {e.body}[/red]"
+                )
+            except (OSError, ValueError, KeyError) as e:
+                failed += 1
+                console.print(f"  [red]{xhtml_path.name}: {e}[/red]")
+            finally:
+                progress.advance(task)
+
+    console.print(f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]")
+
+
+def _extract_title(blocks: list[dict[str, Any]], *, fallback: str) -> str:
+    """Extract title from the first heading block's rich_text content."""
+    for block in blocks:
+        block_type = block.get("type", "")
+        if block_type in ("heading_1", "heading_2", "heading_3"):
+            rich_text = block.get(block_type, {}).get("rich_text", [])
+            parts = [seg.get("text", {}).get("content", "") for seg in rich_text]
+            title = "".join(parts).strip()
+            if title:
+                return title
+    return fallback
 
 
 if __name__ == "__main__":
