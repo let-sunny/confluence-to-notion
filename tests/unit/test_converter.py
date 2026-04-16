@@ -525,10 +525,13 @@ class TestLargePageConversion:
         with caplog.at_level(logging.WARNING, logger="confluence_to_notion.converter.converter"):
             blocks = convert_page(xhtml, _default_ruleset())
         assert len(blocks) == 150
-        assert len(caplog.records) >= 1
-        warning_msg = caplog.records[-1].message
-        assert "150" in warning_msg  # block count
-        assert caplog.records[-1].levelno == logging.WARNING
+        warning_records = [
+            r for r in caplog.records
+            if r.name == "confluence_to_notion.converter.converter"
+            and r.levelno == logging.WARNING
+        ]
+        assert len(warning_records) == 1
+        assert "150" in warning_records[0].message  # block count
 
     def test_small_page_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """XHTML under the threshold does NOT emit a warning."""

@@ -204,6 +204,7 @@ class TestChunkedBlockUpload:
         with (
             patch.object(notion_client._client.pages, "create", mock_create),
             patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await notion_client.create_page(
                 parent_id="parent-123",
@@ -234,6 +235,7 @@ class TestChunkedBlockUpload:
         with (
             patch.object(notion_client._client.pages, "create", mock_create),
             patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await notion_client.create_page(
                 parent_id="parent-123",
@@ -266,6 +268,7 @@ class TestChunkedBlockUpload:
         with (
             patch.object(notion_client._client.pages, "create", mock_create),
             patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await notion_client.create_page(
                 parent_id="parent-123",
