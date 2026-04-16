@@ -250,8 +250,10 @@ class ConfluenceClient:
         """
         semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
 
-        # Fetch root page title
-        root_data = await self._get(f"{self._base}/content/{root_id}")
+        # Fetch root page title (expand="" to skip body/version payload)
+        root_data = await self._get(
+            f"{self._base}/content/{root_id}", params={"expand": ""}
+        )
         root_title: str = root_data.get("title", root_id)
 
         async def _build_node(
@@ -260,6 +262,8 @@ class ConfluenceClient:
             if depth >= max_depth:
                 return PageTreeNode(id=page_id, title=title)
 
+            # Semaphore covers the full pagination loop inside get_child_pages
+            # to prevent request storms on wide trees.
             async with semaphore:
                 children_summaries = await self.get_child_pages(page_id)
 
