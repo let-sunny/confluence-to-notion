@@ -6,6 +6,7 @@ No LLM calls — pure Python transformation logic.
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from confluence_to_notion.agents.schemas import FinalRuleset
+from confluence_to_notion.converter.resolution import ResolutionStore
 from confluence_to_notion.converter.schemas import ConversionResult, UnresolvedItem
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,7 @@ class _ConversionContext:
 
     enabled_ids: set[str]
     page_id: str
+    store: ResolutionStore | None = None
     unresolved: list[UnresolvedItem] = field(default_factory=list)
 
 
@@ -64,6 +67,7 @@ def convert_page(
     ruleset: FinalRuleset,
     *,
     page_id: str = "",
+    store: ResolutionStore | None = None,
 ) -> ConversionResult:
     """Convert a Confluence XHTML page to a list of Notion blocks.
 
@@ -71,6 +75,8 @@ def convert_page(
         xhtml: Confluence XHTML storage body.
         ruleset: Rules controlling which macros/elements to convert.
         page_id: Confluence page ID (used to tag unresolved items).
+        store: Resolution store — if provided, resolved entries are used
+            instead of placeholders for unknown macros and page links.
 
     Returns:
         ConversionResult with blocks and any unresolved items.
@@ -82,6 +88,7 @@ def convert_page(
     ctx = _ConversionContext(
         enabled_ids={r.rule_id for r in ruleset.enabled_rules},
         page_id=page_id,
+        store=store,
     )
     xml_str = _XHTML_WRAPPER.format(xhtml)
     root = ET.fromstring(xml_str)
@@ -259,8 +266,14 @@ def _extract_ac_link_rich_text(
             display_text = _get_all_text(child)
 
     text = display_text or page_title or "link"
-    url = f"https://notion.so/placeholder/{page_title}" if page_title else "#"
 
+    if page_title and ctx.store:
+        entry = ctx.store.lookup(f"page_link:{page_title}")
+        if entry and "notion_page_id" in entry.value:
+            url = f"https://notion.so/{entry.value['notion_page_id']}"
+            return [_text_seg(text, link=url)]
+
+    url = f"https://notion.so/placeholder/{page_title}" if page_title else "#"
     if page_title:
         ctx.unresolved.append(
             UnresolvedItem(
@@ -349,6 +362,13 @@ def _convert_macro(
     # Also handle panels without explicit rules (built-in behavior for info-family macros)
     if macro_name in _PANEL_STYLES:
         return _convert_panel_macro(elem, macro_name, ctx)
+
+    # Check resolution store for pre-resolved blocks
+    if ctx.store:
+        entry = ctx.store.lookup(f"macro:{macro_name}")
+        if entry and "notion_blocks" in entry.value:
+            blocks: list[dict[str, Any]] = copy.deepcopy(entry.value["notion_blocks"])
+            return blocks
 
     # Fallback: render as paragraph with the macro's text content
     ctx.unresolved.append(

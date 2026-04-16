@@ -8,6 +8,7 @@ import pytest
 
 from confluence_to_notion.agents.schemas import FinalRule, FinalRuleset, ProposedRule
 from confluence_to_notion.converter.converter import convert_page
+from confluence_to_notion.converter.resolution import ResolutionStore
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "nested-macros"
 
@@ -620,3 +621,97 @@ class TestUnresolvedCollection:
         result = convert_page(xhtml, _default_ruleset())
         assert len(result.unresolved) == 1
         assert result.unresolved[0].source_page_id == ""
+
+
+# --- Re-conversion with resolution store ---
+
+
+class TestResolvedConversion:
+    """When a ResolutionStore has entries, converter uses them instead of placeholders."""
+
+    def test_resolved_macro_uses_store_blocks(self, tmp_path: Path) -> None:
+        """Macro resolved in store → use stored Notion blocks, no unresolved."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="macro:custom-board",
+            resolved_by="ai_inference",
+            value={
+                "notion_blocks": [
+                    {
+                        "type": "callout",
+                        "callout": {
+                            "icon": {"type": "emoji", "emoji": "\U0001f4cb"},
+                            "color": "blue_background",
+                            "rich_text": [
+                                {"type": "text", "text": {"content": "Board content"}}
+                            ],
+                        },
+                    }
+                ]
+            },
+            confidence=0.9,
+        )
+        xhtml = (
+            '<ac:structured-macro ac:name="custom-board">'
+            "<ac:rich-text-body><p>Board content</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "callout"
+        assert result.unresolved == []
+
+    def test_unresolved_macro_still_placeholder(self, tmp_path: Path) -> None:
+        """Macro NOT in store → placeholder + unresolved (same as before)."""
+        store = ResolutionStore(tmp_path / "res.json")
+        xhtml = '<ac:structured-macro ac:name="unknown-thing" />'
+        result = convert_page(xhtml, _default_ruleset(), store=store)
+
+        assert result.blocks[0]["type"] == "paragraph"
+        assert len(result.unresolved) == 1
+
+    def test_resolved_page_link_uses_notion_url(self, tmp_path: Path) -> None:
+        """Page link resolved in store → real Notion URL, no unresolved."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="page_link:Setup Guide",
+            resolved_by="auto_lookup",
+            value={"notion_page_id": "abc123def456"},
+        )
+        xhtml = (
+            "<p>See "
+            '<ac:link><ri:page ri:content-title="Setup Guide" /></ac:link>'
+            "</p>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        rt = result.blocks[0]["paragraph"]["rich_text"]
+        link_seg = next(s for s in rt if s["text"].get("link"))
+        assert "abc123def456" in link_seg["text"]["link"]["url"]
+        assert "placeholder" not in link_seg["text"]["link"]["url"]
+        # No unresolved items for this link
+        page_links = [u for u in result.unresolved if u.kind == "page_link"]
+        assert page_links == []
+
+    def test_unresolved_page_link_still_placeholder(self, tmp_path: Path) -> None:
+        """Page link NOT in store → placeholder URL + unresolved."""
+        store = ResolutionStore(tmp_path / "res.json")
+        xhtml = (
+            "<p>See "
+            '<ac:link><ri:page ri:content-title="Unknown Page" /></ac:link>'
+            "</p>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), store=store)
+
+        rt = result.blocks[0]["paragraph"]["rich_text"]
+        link_seg = next(s for s in rt if s["text"].get("link"))
+        assert "placeholder" in link_seg["text"]["link"]["url"]
+        assert len(result.unresolved) == 1
+
+    def test_no_store_same_as_before(self) -> None:
+        """Without store param, behavior is identical to previous tests."""
+        xhtml = '<ac:structured-macro ac:name="mystery" />'
+        result = convert_page(xhtml, _default_ruleset())
+        assert result.blocks[0]["type"] == "paragraph"
+        assert len(result.unresolved) == 1

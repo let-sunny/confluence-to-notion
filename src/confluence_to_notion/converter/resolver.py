@@ -6,8 +6,9 @@ entries are saved to the store automatically.
 """
 
 import logging
-from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+
+from pydantic import BaseModel, Field
 
 from confluence_to_notion.converter.resolution import ResolutionStore
 from confluence_to_notion.converter.schemas import ResolutionEntry, UnresolvedItem
@@ -22,14 +23,13 @@ class ResolveStrategy(Protocol):
     async def try_resolve(self, item: UnresolvedItem) -> ResolutionEntry | None: ...
 
 
-@dataclass
-class ResolveReport:
+class ResolveReport(BaseModel):
     """Result of a resolve pass."""
 
-    resolved_count: int = 0
-    from_store: int = 0
-    newly_resolved: int = 0
-    still_unresolved: list[UnresolvedItem] = field(default_factory=list)
+    resolved_count: int = Field(default=0)
+    from_store: int = Field(default=0)
+    newly_resolved: int = Field(default=0)
+    still_unresolved: list[UnresolvedItem] = Field(default_factory=list)
 
 
 class Resolver:
