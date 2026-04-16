@@ -1,0 +1,17 @@
+<!-- 3-level nesting: expand > info > code — common in setup/installation guides -->
+<ac:structured-macro ac:name="expand" ac:schema-version="1">
+  <ac:parameter ac:name="title">Installation steps</ac:parameter>
+  <ac:rich-text-body>
+    <ac:structured-macro ac:name="info" ac:schema-version="1">
+      <ac:rich-text-body>
+        <p>Requires JDK 11 or later. Run the following commands:</p>
+        <ac:structured-macro ac:name="code" ac:schema-version="1">
+          <ac:parameter ac:name="language">bash</ac:parameter>
+          <ac:plain-text-body><![CDATA[git clone https://github.com/apache/kafka.git
+cd kafka
+./gradlew jar]]></ac:plain-text-body>
+        </ac:structured-macro>
+      </ac:rich-text-body>
+    </ac:structured-macro>
+  </ac:rich-text-body>
+</ac:structured-macro>

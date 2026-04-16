@@ -278,6 +278,14 @@ def _convert_macro(
     if macro_name == "jira" and "rule:macro:jira" in enabled_ids:
         return [_paragraph(_jira_rich_text(elem))]
 
+    # Code / noformat
+    if macro_name in ("code", "noformat") and "rule:macro:code" in enabled_ids:
+        return _convert_code_macro(elem)
+
+    # Expand (toggle)
+    if macro_name == "expand" and "rule:macro:expand" in enabled_ids:
+        return _convert_expand_macro(elem, enabled_ids)
+
     # Info/Note/Warning/Tip panels
     if macro_name in _PANEL_STYLES and f"rule:macro:{macro_name}" in enabled_ids:
         return _convert_panel_macro(elem, macro_name, enabled_ids)
@@ -300,30 +308,77 @@ def _convert_panel_macro(
     """Convert info/note/warning/tip macro to a Notion callout block."""
     emoji, color = _PANEL_STYLES[macro_name]
     rich_text: list[dict[str, Any]] = []
+    children: list[dict[str, Any]] = []
+    first_p_done = False
 
     for child in elem:
         if _local_tag(child) == "rich-text-body":
-            # Extract text from inner elements (typically <p> tags)
             for inner in child:
                 inner_tag = _local_tag(inner)
-                if inner_tag == "p":
+                if inner_tag == "p" and not first_p_done:
+                    # First <p> becomes the callout's rich_text
                     rt = _extract_rich_text(inner, enabled_ids)
                     rich_text.extend(rt)
+                    first_p_done = True
                 else:
-                    text = _get_all_text(inner)
-                    if text:
-                        rich_text.append(_text_seg(text))
+                    # Subsequent elements become nested children
+                    child_blocks = _convert_element(inner, enabled_ids)
+                    children.extend(child_blocks)
+
+    callout: dict[str, Any] = {
+        "icon": {"type": "emoji", "emoji": emoji},
+        "color": color,
+        "rich_text": rich_text,
+    }
+    if children:
+        callout["children"] = children
+
+    return [{"type": "callout", "callout": callout}]
+
+
+def _convert_code_macro(elem: ET.Element) -> list[dict[str, Any]]:
+    """Convert code/noformat macro to a Notion code block."""
+    params = _get_macro_params(elem)
+    language = params.get("language", "plain text")
+
+    content = ""
+    for child in elem:
+        if _local_tag(child) == "plain-text-body":
+            content = _get_all_text(child).strip()
 
     return [
         {
-            "type": "callout",
-            "callout": {
-                "icon": {"type": "emoji", "emoji": emoji},
-                "color": color,
-                "rich_text": rich_text,
+            "type": "code",
+            "code": {
+                "language": language,
+                "rich_text": [_text_seg(content)],
             },
         }
     ]
+
+
+def _convert_expand_macro(
+    elem: ET.Element,
+    enabled_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Convert expand macro to a Notion toggle block."""
+    params = _get_macro_params(elem)
+    title = params.get("title", "Details")
+
+    children: list[dict[str, Any]] = []
+    for child in elem:
+        if _local_tag(child) == "rich-text-body":
+            for inner in child:
+                child_blocks = _convert_element(inner, enabled_ids)
+                children.extend(child_blocks)
+
+    toggle: dict[str, Any] = {
+        "rich_text": [_text_seg(title)],
+    }
+    if children:
+        toggle["children"] = children
+
+    return [{"type": "toggle", "toggle": toggle}]
 
 
 def _jira_rich_text(elem: ET.Element) -> list[dict[str, Any]]:

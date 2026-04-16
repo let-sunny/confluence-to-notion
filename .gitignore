@@ -36,6 +36,9 @@ output/*.json
 output/*.log
 !output/.gitkeep
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,11 +1,14 @@
 """Unit tests for the deterministic XHTML → Notion block converter."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from confluence_to_notion.agents.schemas import FinalRule, FinalRuleset, ProposedRule
 from confluence_to_notion.converter.converter import convert_page
+
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "nested-macros"
 
 # --- Helpers ---
 
@@ -22,7 +25,7 @@ def _ruleset(rules: list[dict[str, Any]] | None = None) -> FinalRuleset:
 
 
 def _default_ruleset() -> FinalRuleset:
-    """A ruleset containing all 8 rules from the actual proposals.json."""
+    """A ruleset containing all rules from the actual proposals.json."""
     return _ruleset(
         [
             {
@@ -73,6 +76,26 @@ def _default_ruleset() -> FinalRuleset:
                 "mapping_description": "Map pre",
                 "example_input": "<x/>",
                 "example_output": {"type": "code"},
+                "confidence": "high",
+            },
+            {
+                "rule_id": "rule:macro:code",
+                "source_pattern_id": "macro:code",
+                "source_description": "Code macro",
+                "notion_block_type": "code",
+                "mapping_description": "Map code macro to code block",
+                "example_input": "<x/>",
+                "example_output": {"type": "code"},
+                "confidence": "high",
+            },
+            {
+                "rule_id": "rule:macro:expand",
+                "source_pattern_id": "macro:expand",
+                "source_description": "Expand macro",
+                "notion_block_type": "toggle",
+                "mapping_description": "Map expand macro to toggle block",
+                "example_input": "<x/>",
+                "example_output": {"type": "toggle"},
                 "confidence": "high",
             },
         ]
@@ -254,6 +277,131 @@ class TestMacroInfo:
         blocks = convert_page(xhtml, _default_ruleset())
         assert blocks[0]["callout"]["icon"]["emoji"] == emoji
         assert blocks[0]["callout"]["color"] == color
+
+
+class TestMacroCode:
+    def test_code_macro_with_language(self) -> None:
+        """Code macro with language param produces a Notion code block."""
+        xhtml = (
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">python</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[print('hello')]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "python"
+        assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "print('hello')"
+
+    def test_code_macro_no_language(self) -> None:
+        """Code macro without language defaults to 'plain text'."""
+        xhtml = (
+            '<ac:structured-macro ac:name="code">'
+            "<ac:plain-text-body><![CDATA[some code]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "plain text"
+
+    def test_noformat_macro(self) -> None:
+        """noformat macro produces a code block with 'plain text' language."""
+        xhtml = (
+            '<ac:structured-macro ac:name="noformat">'
+            "<ac:plain-text-body><![CDATA[raw text]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["code"]["language"] == "plain text"
+        assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "raw text"
+
+
+class TestNestedMacros:
+    """Nested macro tests using fixture files from tests/fixtures/nested-macros/."""
+
+    @staticmethod
+    def _load_fixture(name: str) -> str:
+        return (FIXTURES_DIR / name).read_text()
+
+    def test_info_with_inline_code_from_sample(self) -> None:
+        """Real sample: info macro with <code> inside (from samples/27835336.xhtml)."""
+        xhtml = self._load_fixture("info-with-code-from-sample.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        callout = blocks[0]["callout"]
+        # Verify the real-world text is preserved
+        text = "".join(seg["text"]["content"] for seg in callout["rich_text"])
+        assert "./gradlew eclipse" in text
+        assert "regenerate the projects" in text
+
+    def test_expand_with_nested_code(self) -> None:
+        """Expand containing a code macro → toggle with code block child."""
+        xhtml = self._load_fixture("expand-with-code.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Show configuration example"
+        children = toggle["children"]
+        code_children = [c for c in children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert code_children[0]["code"]["language"] == "properties"
+        assert "broker.id=0" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
+
+    def test_three_level_expand_info_code(self) -> None:
+        """Expand > info > code → toggle > callout > code (3-level nesting)."""
+        xhtml = self._load_fixture("expand-with-info-and-code.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "toggle"
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Installation steps"
+        toggle_children = toggle["children"]
+        assert len(toggle_children) == 1
+        assert toggle_children[0]["type"] == "callout"
+        callout = toggle_children[0]["callout"]
+        text = "".join(seg["text"]["content"] for seg in callout["rich_text"])
+        assert "JDK 11" in text
+        callout_children = callout["children"]
+        code_children = [c for c in callout_children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert code_children[0]["code"]["language"] == "bash"
+        assert "gradlew jar" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
+
+    def test_warning_with_nested_info(self) -> None:
+        """Warning panel containing info panel → callout with callout child."""
+        xhtml = self._load_fixture("warning-with-info.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        outer = blocks[0]["callout"]
+        assert outer["icon"]["emoji"] == "\u26a0\ufe0f"
+        assert outer["color"] == "yellow_background"
+        assert "Breaking change" in outer["rich_text"][0]["text"]["content"]
+        assert "children" in outer
+        children = outer["children"]
+        info_children = [c for c in children if c["type"] == "callout"]
+        assert len(info_children) == 1
+        inner = info_children[0]["callout"]
+        assert inner["icon"]["emoji"] == "\u2139\ufe0f"
+        assert inner["color"] == "blue_background"
+
+    def test_note_with_jira_and_code(self) -> None:
+        """Note panel with JIRA macro + code block — mixed nesting from real patterns."""
+        xhtml = self._load_fixture("panel-with-jira-and-code.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        callout = blocks[0]["callout"]
+        # Note panel should have children including code block
+        assert "children" in callout
+        children = callout["children"]
+        code_children = [c for c in children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert "gradlew eclipse" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
 
 
 # --- Confluence Elements ---

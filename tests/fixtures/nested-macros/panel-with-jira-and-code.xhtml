@@ -1,0 +1,14 @@
+<!-- Mixed nesting: note panel with JIRA reference + code block — common in bug/task documentation -->
+<ac:structured-macro ac:name="note" ac:schema-version="1">
+  <ac:rich-text-body>
+    <p>Workaround for <ac:structured-macro ac:name="jira" ac:schema-version="1">
+      <ac:parameter ac:name="server">ASF JIRA</ac:parameter>
+      <ac:parameter ac:name="serverId">5aa69414-a9e9-3523-82ec-879b028fb15b</ac:parameter>
+      <ac:parameter ac:name="key">KAFKA-4617</ac:parameter>
+    </ac:structured-macro>:</p>
+    <ac:structured-macro ac:name="code" ac:schema-version="1">
+      <ac:parameter ac:name="language">bash</ac:parameter>
+      <ac:plain-text-body><![CDATA[./gradlew eclipse --refresh-dependencies]]></ac:plain-text-body>
+    </ac:structured-macro>
+  </ac:rich-text-body>
+</ac:structured-macro>
