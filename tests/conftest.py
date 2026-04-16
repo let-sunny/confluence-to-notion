@@ -5,6 +5,14 @@ import pytest
 from confluence_to_notion.config import Settings
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register custom pytest markers."""
+    config.addinivalue_line(
+        "markers",
+        "integration: mark test as an integration test (run with: pytest -m integration)",
+    )
+
+
 @pytest.fixture
 def settings() -> Settings:
     """Create test settings with dummy values (authenticated Confluence)."""

@@ -1,0 +1,23 @@
+{
+  "plan_file": "output/dev/plan.json",
+  "files_reviewed": [
+    "tests/conftest.py",
+    "tests/fixtures/integration/page1.xhtml",
+    "tests/fixtures/integration/page2.xhtml",
+    "tests/fixtures/integration/rules.json",
+    "tests/integration/__init__.py",
+    "tests/integration/test_e2e_pipeline.py"
+  ],
+  "issues": [
+    {
+      "severity": "warning",
+      "file": "tests/integration/test_e2e_pipeline.py",
+      "line": null,
+      "description": "Integration tests are not excluded from the default pytest run. testing.md states: 'Integration tests live in tests/integration/, skipped by default, run with -m integration'. No addopts filter is set in pyproject.toml, so 'uv run pytest' includes all 9 integration tests.",
+      "suggestion": "Add 'addopts = \"-m not integration\"' (or 'filterwarnings' + 'addopts') under [tool.pytest.ini_options] in pyproject.toml so that 'uv run pytest' skips integration tests by default and they require an explicit '-m integration' flag.",
+      "intent_conflict": true,
+      "implement_intent": "The integration marker is not excluded from the default pytest run because all mocks are in place, no external services are needed, and the tests complete in under 1 second — so there is no practical cost to including them in the default run."
+    }
+  ],
+  "approved": true
+}

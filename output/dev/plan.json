@@ -1,0 +1,34 @@
+{
+  "issue_number": 20,
+  "issue_title": "test: E2E 통합 테스트 — fetch → discover → convert → migrate",
+  "split": false,
+  "remaining_description": null,
+  "tasks": [
+    {
+      "task_id": "task:1",
+      "title": "Register integration marker and create fixture data",
+      "description": "Register the 'integration' pytest marker in tests/conftest.py via pytest_configure hook. Create two fixture XHTML pages (page1.xhtml, page2.xhtml) under tests/fixtures/integration/ covering headings, paragraphs, and lists. Create tests/fixtures/integration/rules.json as a minimal FinalRuleset (matching src/confluence_to_notion/agents/schemas.py FinalRuleset) to simulate discover pipeline output.",
+      "affected_files": [
+        "tests/conftest.py",
+        "tests/fixtures/integration/page1.xhtml",
+        "tests/fixtures/integration/page2.xhtml",
+        "tests/fixtures/integration/rules.json"
+      ],
+      "depends_on": [],
+      "test_files": []
+    },
+    {
+      "task_id": "task:2",
+      "title": "Write E2E integration tests: convert → migrate dry-run",
+      "description": "Create tests/integration/__init__.py and tests/integration/test_e2e_pipeline.py. Tests must be marked @pytest.mark.integration and require no external APIs. Test flow: (1) load fixture XHTML pages from tests/fixtures/integration/ (simulating fetch output); (2) load fixture rules.json into FinalRuleset (simulating discover output); (3) call convert_page() directly to produce Notion blocks; (4) mock NotionClientWrapper.create_page as a dry-run and invoke the migrate CLI command; (5) assert blocks are non-empty with correct Notion block structure, and that create_page was called once per page with correct parent_id and title. Run with: uv run pytest -m integration",
+      "affected_files": [
+        "tests/integration/__init__.py",
+        "tests/integration/test_e2e_pipeline.py"
+      ],
+      "depends_on": ["task:1"],
+      "test_files": [
+        "tests/integration/test_e2e_pipeline.py"
+      ]
+    }
+  ]
+}

@@ -44,6 +44,8 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = ["integration: E2E integration tests (require explicit -m integration)"]
 
 [build-system]
 requires = ["hatchling"]
