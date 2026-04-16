@@ -60,6 +60,7 @@ class _ConversionContext:
     page_id: str
     store: ResolutionStore | None = None
     unresolved: list[UnresolvedItem] = field(default_factory=list)
+    table_index: int = 0
 
 
 def convert_page(
@@ -174,6 +175,10 @@ def _convert_element(
     # --- Styled span (heading substitute) ---
     if tag == "span":
         return _convert_span(elem)
+
+    # --- HTML table (layout table → Notion table block; databases come later) ---
+    if tag == "table":
+        return _convert_table(elem, ctx)
 
     # --- Fallback: recurse into children ---
     return _convert_children(elem, ctx, block_type=None)
@@ -580,6 +585,88 @@ def _convert_pre(elem: ET.Element) -> list[dict[str, Any]]:
             "code": {
                 "language": "plain text",
                 "rich_text": [_text_seg(content)],
+            },
+        }
+    ]
+
+
+_TABLE_CONTEXT_MAX_LEN = 1000
+
+
+def _convert_table(
+    elem: ET.Element,
+    ctx: _ConversionContext,
+) -> list[dict[str, Any]]:
+    """Convert an HTML <table> to a Notion table block.
+
+    Emits an UnresolvedItem(kind='table') alongside so a later AI resolver
+    can re-emit the table as a Notion database if the rows look structured.
+    """
+    thead_rows: list[ET.Element] = []
+    tbody_rows: list[ET.Element] = []
+    for child in elem:
+        tag = _local_tag(child)
+        if tag == "thead":
+            thead_rows.extend(tr for tr in child if _local_tag(tr) == "tr")
+        elif tag == "tbody":
+            tbody_rows.extend(tr for tr in child if _local_tag(tr) == "tr")
+        elif tag == "tr":
+            tbody_rows.append(child)
+
+    all_rows = thead_rows + tbody_rows
+    if not all_rows:
+        return []
+
+    identifier = f"table-{ctx.table_index:04d}"
+    ctx.table_index += 1
+
+    if ctx.store:
+        entry = ctx.store.lookup(f"table:{identifier}")
+        if entry and "notion_blocks" in entry.value:
+            resolved: list[dict[str, Any]] = copy.deepcopy(entry.value["notion_blocks"])
+            return resolved
+
+    converted_rows: list[dict[str, Any]] = []
+    max_width = 0
+    for tr in all_rows:
+        cells: list[list[dict[str, Any]]] = []
+        for cell_elem in tr:
+            if _local_tag(cell_elem) in ("th", "td"):
+                cells.append(_extract_rich_text(cell_elem, ctx))
+        if not cells:
+            continue
+        max_width = max(max_width, len(cells))
+        converted_rows.append({"type": "table_row", "table_row": {"cells": cells}})
+
+    if not converted_rows:
+        return []
+
+    # Notion requires every row to have the same cell count as table_width.
+    for row in converted_rows:
+        row_cells = row["table_row"]["cells"]
+        while len(row_cells) < max_width:
+            row_cells.append([])
+
+    context_xhtml = ET.tostring(elem, encoding="unicode")
+    if len(context_xhtml) > _TABLE_CONTEXT_MAX_LEN:
+        context_xhtml = context_xhtml[:_TABLE_CONTEXT_MAX_LEN]
+    ctx.unresolved.append(
+        UnresolvedItem(
+            kind="table",
+            identifier=identifier,
+            source_page_id=ctx.page_id,
+            context_xhtml=context_xhtml,
+        )
+    )
+
+    return [
+        {
+            "type": "table",
+            "table": {
+                "table_width": max_width,
+                "has_column_header": bool(thead_rows),
+                "has_row_header": False,
+                "children": converted_rows,
             },
         }
     ]

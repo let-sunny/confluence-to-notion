@@ -39,11 +39,14 @@ class UnresolvedItem(BaseModel):
     Collected during conversion and processed afterwards by the resolver.
     """
 
-    kind: Literal["macro", "jira_server", "page_link", "synced_block"] = Field(
-        description="Category of the unresolved element",
+    kind: Literal["macro", "jira_server", "page_link", "synced_block", "table"] = Field(
+        description=(
+            "Category of the unresolved element "
+            "(macro, jira_server, page_link, synced_block, or table)"
+        ),
     )
     identifier: str = Field(
-        description="Key identifier (macro name, server name, page title)",
+        description="Key identifier (macro name, server name, page title, table id)",
     )
     source_page_id: str = Field(
         description="Confluence page ID where this was encountered",
