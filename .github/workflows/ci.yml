@@ -41,12 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check for agent prompt changes
         id: prompt-check
         run: |
-          if git diff HEAD~1 --name-only -- '.claude/agents/' | grep -q .; then
+          if git diff ${{ github.event.pull_request.base.sha }}...HEAD --name-only -- '.claude/agents/' | grep -q .; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"

@@ -38,8 +38,7 @@ check_output() {
 run_step() {
     local step_num="$1"
     local step_name="$2"
-    local agent_file="$3"
-    local prompt="$4"
+    local prompt="$3"
 
     if [[ "$step_num" -lt "$FROM_STEP" ]]; then
         echo "==> Step $step_num: $step_name (skipped, --from $FROM_STEP)"
@@ -75,7 +74,6 @@ fi
 
 # Step 1: Pattern Discovery
 run_step 1 "pattern-discovery" \
-    ".claude/agents/discover/pattern-discovery.md" \
     "$(cat .claude/agents/discover/pattern-discovery.md)
 
 Analyze the XHTML files in ${SAMPLES_DIR} and write discovered patterns to ${OUTPUT_DIR}/patterns.json"
@@ -86,7 +84,6 @@ fi
 
 # Step 2: Rule Proposer
 run_step 2 "rule-proposer" \
-    ".claude/agents/discover/rule-proposer.md" \
     "$(cat .claude/agents/discover/rule-proposer.md)
 
 Read ${OUTPUT_DIR}/patterns.json and propose transformation rules. Write to ${OUTPUT_DIR}/proposals.json"
