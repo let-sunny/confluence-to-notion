@@ -1,7 +1,7 @@
 """Unit tests for the Confluence async client."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -291,7 +291,7 @@ async def test_client_timeout_configured(confluence_client: ConfluenceClient) ->
 @respx.mock
 @patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
 async def test_retry_on_transient_5xx(
-    mock_sleep: object, confluence_client: ConfluenceClient
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
 ) -> None:
     """Transient 5xx followed by success retries and returns result."""
     call_count = 0
@@ -316,7 +316,7 @@ async def test_retry_on_transient_5xx(
 @respx.mock
 @patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
 async def test_retry_on_timeout_exception(
-    mock_sleep: object, confluence_client: ConfluenceClient
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
 ) -> None:
     """httpx.TimeoutException triggers retry and succeeds on next attempt."""
     call_count = 0
@@ -360,7 +360,7 @@ async def test_no_retry_on_4xx(confluence_client: ConfluenceClient) -> None:
 @respx.mock
 @patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
 async def test_retries_exhausted_raises(
-    mock_sleep: object, confluence_client: ConfluenceClient
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
 ) -> None:
     """All retries exhausted on persistent 5xx raises after _MAX_RETRIES attempts."""
     call_count = 0
@@ -379,3 +379,28 @@ async def test_retries_exhausted_raises(
 
     # 1 initial + _MAX_RETRIES retries
     assert call_count == 1 + _MAX_RETRIES
+
+
+@respx.mock
+@patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
+async def test_oneshot_path_retries_on_5xx(
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
+) -> None:
+    """One-shot client path (no async-with) retries on transient 5xx."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(503, json={"message": "Service Unavailable"})
+        return httpx.Response(200, json=_page_json("789", "Oneshot OK"))
+
+    respx.get(f"{BASE}/content/789").mock(side_effect=_handler)
+
+    # Call without `async with` — exercises the per-attempt AsyncClient branch
+    page = await confluence_client.get_page("789")
+
+    assert page.id == "789"
+    assert page.title == "Oneshot OK"
+    assert call_count == 2
