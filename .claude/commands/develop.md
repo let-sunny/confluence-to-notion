@@ -22,8 +22,23 @@ Includes circuit breaker: if fix loop makes no progress, re-plans with a differe
 2. Create a feature branch `feat/issue-<number>` if on main.
 3. Run: `bash scripts/develop.sh $ARGUMENTS`
 4. Stream the output so the user can follow progress.
-5. When complete, report:
-   - Branch name
-   - Files changed
-   - PR URL (if created)
-   - Any circuit breaker events
+5. When complete, report a summary table in this format:
+
+   ```
+   | Step | Status | Details |
+   |------|--------|---------|
+   | Plan | completed | N tasks planned |
+   | Implement | completed | N files changed, +N lines |
+   | Test | completed | N tests passed, lint clean |
+   | Review | approved/rejected | N errors, N warnings |
+   | Fix | completed/skipped | Fixed N findings / Review approved |
+   | Verify | completed/skipped | Lint + tests passed |
+   | PR | completed | Draft PR created |
+   ```
+
+   After the table, include:
+   - **Branch**: branch name
+   - **PR**: PR URL (if created)
+   - **Circuit breaker**: any events or "No events"
+   - Key implementation summary (bullet points)
+   - Reviewer notes (non-blocking issues from review)
