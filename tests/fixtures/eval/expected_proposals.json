@@ -1,0 +1,91 @@
+{
+  "source_patterns_file": "output/patterns.json",
+  "rules": [
+    {
+      "rule_id": "rule:macro:toc",
+      "source_pattern_id": "macro:toc",
+      "source_description": "Table of contents macro that generates a TOC from headings",
+      "notion_block_type": "table_of_contents",
+      "mapping_description": "Map ac:structured-macro[toc] to a Notion table_of_contents block. Ignore parameters like 'printable' since Notion's TOC block has no configuration options.",
+      "example_input": "<ac:structured-macro ac:name=\"toc\"/>",
+      "example_output": {
+        "type": "table_of_contents",
+        "table_of_contents": {
+          "color": "default"
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "rule_id": "rule:macro:code",
+      "source_pattern_id": "macro:code",
+      "source_description": "Code block macro with optional language parameter",
+      "notion_block_type": "code",
+      "mapping_description": "Map ac:structured-macro[code] to a Notion code block. Extract the 'language' parameter for syntax highlighting. Map the CDATA body text to rich_text content.",
+      "example_input": "<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">python</ac:parameter><ac:plain-text-body><![CDATA[print('hello')]]></ac:plain-text-body></ac:structured-macro>",
+      "example_output": {
+        "type": "code",
+        "code": {
+          "language": "python",
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "print('hello')"
+              }
+            }
+          ]
+        }
+      },
+      "confidence": "high"
+    },
+    {
+      "rule_id": "rule:element:ac-link",
+      "source_pattern_id": "element:ac-link",
+      "source_description": "Confluence internal link referencing another page by title",
+      "notion_block_type": "paragraph",
+      "mapping_description": "Map ac:link to a Notion paragraph containing a text mention. Use the ri:page content-title as the link text. If a plain-text-link-body exists, use that as display text instead.",
+      "example_input": "<ac:link><ri:page ri:content-title=\"Getting Started\"/></ac:link>",
+      "example_output": {
+        "type": "paragraph",
+        "paragraph": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "Getting Started",
+                "link": null
+              }
+            }
+          ]
+        }
+      },
+      "confidence": "medium"
+    },
+    {
+      "rule_id": "rule:formatting:text-effect",
+      "source_pattern_id": "formatting:text-effect",
+      "source_description": "Confluence text effects including color and underline",
+      "notion_block_type": "rich_text",
+      "mapping_description": "Map Confluence text effects to Notion rich_text annotations. Map color macros to Notion color annotations. Map underline styles to rich_text with underline=true.",
+      "example_input": "<ac:structured-macro ac:name=\"color\"><ac:parameter ac:name=\"color\">#ff0000</ac:parameter><ac:rich-text-body><p>Important</p></ac:rich-text-body></ac:structured-macro>",
+      "example_output": {
+        "type": "paragraph",
+        "paragraph": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "Important"
+              },
+              "annotations": {
+                "color": "red"
+              }
+            }
+          ]
+        }
+      },
+      "confidence": "low"
+    }
+  ]
+}

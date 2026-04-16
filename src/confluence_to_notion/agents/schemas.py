@@ -281,3 +281,35 @@ class FinalRuleset(BaseModel):
             source=output.source_patterns_file,
             rules=[FinalRule.from_proposed(r) for r in output.rules],
         )
+
+
+# --- Eval Framework Schemas ---
+
+
+class EvalMatchResult(BaseModel):
+    """Result of comparing actual vs expected agent output for a single agent."""
+
+    agent_name: str = Field(description="Name of the agent being evaluated")
+    status: Literal["pass", "fail", "partial"] = Field(
+        description="Overall match status",
+    )
+    expected_ids: list[str] = Field(description="IDs expected in the output")
+    actual_ids: list[str] = Field(description="IDs found in the actual output")
+    missing_ids: list[str] = Field(description="Expected IDs not found in actual output")
+    extra_ids: list[str] = Field(description="Actual IDs not in expected output")
+    score: float = Field(ge=0, le=1, description="Match score (0.0 to 1.0)")
+
+
+class EvalReport(BaseModel):
+    """Full eval report comparing agent outputs against fixtures."""
+
+    timestamp: str = Field(description="ISO 8601 timestamp of the eval run")
+    prompt_changed: bool = Field(
+        default=False,
+        description="Whether agent prompts changed since last commit",
+    )
+    results: list[EvalMatchResult] = Field(
+        default_factory=list,
+        description="Per-agent comparison results",
+    )
+    overall_pass: bool = Field(description="Whether all agents passed")

@@ -1,0 +1,51 @@
+{
+  "sample_dir": "samples/",
+  "pages_analyzed": 3,
+  "patterns": [
+    {
+      "pattern_id": "macro:toc",
+      "pattern_type": "macro",
+      "description": "Table of contents macro — generates an automatic TOC from headings",
+      "example_snippets": [
+        "<ac:structured-macro ac:name=\"toc\"><ac:parameter ac:name=\"printable\">true</ac:parameter></ac:structured-macro>",
+        "<ac:structured-macro ac:name=\"toc\"/>"
+      ],
+      "source_pages": ["27835336", "27849051"],
+      "frequency": 2
+    },
+    {
+      "pattern_id": "macro:code",
+      "pattern_type": "macro",
+      "description": "Code block macro — renders syntax-highlighted source code",
+      "example_snippets": [
+        "<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">java</ac:parameter><ac:plain-text-body><![CDATA[public class Main {}]]></ac:plain-text-body></ac:structured-macro>",
+        "<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">python</ac:parameter><ac:plain-text-body><![CDATA[print('hello')]]></ac:plain-text-body></ac:structured-macro>",
+        "<ac:structured-macro ac:name=\"code\"><ac:plain-text-body><![CDATA[ls -la]]></ac:plain-text-body></ac:structured-macro>"
+      ],
+      "source_pages": ["27835336", "27849051", "27800100"],
+      "frequency": 5
+    },
+    {
+      "pattern_id": "element:ac-link",
+      "pattern_type": "element",
+      "description": "Confluence internal link — cross-references another page by title",
+      "example_snippets": [
+        "<ac:link><ri:page ri:content-title=\"Getting Started\"/></ac:link>",
+        "<ac:link><ri:page ri:content-title=\"Configuration Guide\"/><ac:plain-text-link-body><![CDATA[Config]]></ac:plain-text-link-body></ac:link>"
+      ],
+      "source_pages": ["27835336", "27849051", "27800100"],
+      "frequency": 8
+    },
+    {
+      "pattern_id": "formatting:text-effect",
+      "pattern_type": "formatting",
+      "description": "Confluence text effects — color, underline, and other inline styling via <ac:parameter>",
+      "example_snippets": [
+        "<ac:structured-macro ac:name=\"color\"><ac:parameter ac:name=\"color\">#ff0000</ac:parameter><ac:rich-text-body><p>Important</p></ac:rich-text-body></ac:structured-macro>",
+        "<span style=\"text-decoration: underline;\">underlined text</span>"
+      ],
+      "source_pages": ["27849051", "27800100"],
+      "frequency": 3
+    }
+  ]
+}
