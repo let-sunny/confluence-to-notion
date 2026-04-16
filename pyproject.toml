@@ -4,6 +4,20 @@ version = "0.1.0"
 description = "Auto-discover Confluence → Notion transformation rules using a multi-agent pipeline"
 license = "MIT"
 requires-python = ">=3.11"
+authors = [
+    { name = "minseon", email = "let.sunny.day@gmail.com" },
+]
+keywords = ["confluence", "notion", "migration", "wiki", "converter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+    "Topic :: Text Processing :: Markup",
+    "Typing :: Typed",
+]
 dependencies = [
     "httpx>=0.27.0",
     "notion-client>=2.2.0",
@@ -22,6 +36,10 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/let-sunny/confluence-to-notion"
+Issues = "https://github.com/let-sunny/confluence-to-notion/issues"
 
 [project.scripts]
 cli = "confluence_to_notion.cli:app"

@@ -33,6 +33,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 - **CRITICAL**: Before any agent prompt change, run `scripts/run-eval.sh`
 - Conventional commits: `feat|fix|docs|refactor|test|chore`
 - Squash merge only
+- PR 생성 시 관련 이슈를 `Closes #N` 키워드로 본문에 연결 (머지 시 자동 클로즈)
 
 ## Additional Rules
 
