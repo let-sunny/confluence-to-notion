@@ -270,8 +270,7 @@ def _extract_ac_link_rich_text(
     if page_title and ctx.store:
         entry = ctx.store.lookup(f"page_link:{page_title}")
         if entry and "notion_page_id" in entry.value:
-            url = f"https://notion.so/{entry.value['notion_page_id']}"
-            return [_text_seg(text, link=url)]
+            return [_page_mention_seg(text, page_id=entry.value["notion_page_id"])]
 
     url = f"https://notion.so/placeholder/{page_title}" if page_title else "#"
     if page_title:
@@ -699,6 +698,15 @@ def _text_seg(
         seg["annotations"] = annotations
 
     return seg
+
+
+def _page_mention_seg(plain_text: str, *, page_id: str) -> dict[str, Any]:
+    """Build a Notion page-mention rich_text segment."""
+    return {
+        "type": "mention",
+        "mention": {"type": "page", "page": {"id": page_id}},
+        "plain_text": plain_text,
+    }
 
 
 def _paragraph(rich_text: list[dict[str, Any]]) -> dict[str, Any]:
