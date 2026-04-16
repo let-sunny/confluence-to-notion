@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 5
 BASE_DELAY = 1.0  # seconds
+NOTION_MAX_CHILDREN = 100  # Notion API limit: max children per request
 
 
 class NotionClientWrapper:
@@ -43,17 +44,41 @@ class NotionClientWrapper:
     ) -> NotionPageResult:
         """Create a page under the given parent and return a NotionPageResult.
 
+        Splits blocks into chunks of NOTION_MAX_CHILDREN to respect the API limit.
         Retries up to MAX_RETRIES times on 429 (rate limit) with exponential backoff.
         """
+        first_chunk = blocks[:NOTION_MAX_CHILDREN]
+        remaining = blocks[NOTION_MAX_CHILDREN:]
+
+        page_id = await self._create_page_with_retry(parent_id, title, first_chunk)
+
+        # Append remaining blocks in chunks
+        for i in range(0, len(remaining), NOTION_MAX_CHILDREN):
+            chunk = remaining[i : i + NOTION_MAX_CHILDREN]
+            logger.info(
+                "Appending block chunk %d-%d (%d blocks) to page %s",
+                NOTION_MAX_CHILDREN + i,
+                NOTION_MAX_CHILDREN + i + len(chunk),
+                len(chunk),
+                page_id,
+            )
+            await self._append_children_with_retry(page_id, chunk)
+
+        return NotionPageResult(page_id=page_id)
+
+    async def _create_page_with_retry(
+        self, parent_id: str, title: str, children: list[dict[str, Any]]
+    ) -> str:
+        """Create page with retry-on-429, return the page id."""
         last_error: APIResponseError | None = None
         for attempt in range(MAX_RETRIES + 1):
             try:
                 resp: Any = await self._client.pages.create(
                     parent={"page_id": parent_id},
                     properties={"title": [{"text": {"content": title}}]},
-                    children=blocks,
+                    children=children,
                 )
-                return NotionPageResult(page_id=resp["id"])
+                return str(resp["id"])
             except APIResponseError as e:
                 if e.status != 429 or attempt == MAX_RETRIES:
                     raise
@@ -61,6 +86,33 @@ class NotionClientWrapper:
                 delay = BASE_DELAY * (2**attempt) + random.uniform(0, 1)
                 logger.warning(
                     "Notion rate limited (429), retry %d/%d in %.1fs",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
+        assert last_error is not None  # unreachable, satisfies mypy
+        raise last_error
+
+    async def _append_children_with_retry(
+        self, page_id: str, children: list[dict[str, Any]]
+    ) -> None:
+        """Append children blocks to a page with retry-on-429."""
+        last_error: APIResponseError | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                await self._client.blocks.children.append(
+                    block_id=page_id, children=children
+                )
+                return
+            except APIResponseError as e:
+                if e.status != 429 or attempt == MAX_RETRIES:
+                    raise
+                last_error = e
+                delay = BASE_DELAY * (2**attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "Notion rate limited (429) on append, retry %d/%d in %.1fs",
                     attempt + 1,
                     MAX_RETRIES,
                     delay,

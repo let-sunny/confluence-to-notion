@@ -1,5 +1,6 @@
 """Unit tests for the deterministic XHTML → Notion block converter."""
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -499,3 +500,48 @@ class TestEdgeCases:
         xhtml = '<ac:structured-macro ac:name="toc" ac:schema-version="1" />'
         blocks = convert_page(xhtml, ruleset)
         assert blocks[0]["type"] == "paragraph"
+
+
+# --- Large page conversion warning ---
+
+
+class TestLargePageConversion:
+    """Tests for warning logs emitted when converting large pages."""
+
+    @staticmethod
+    def _make_large_xhtml(p_count: int) -> str:
+        """Generate XHTML with `p_count` paragraph tags."""
+        return "".join(f"<p>Paragraph {i}</p>" for i in range(p_count))
+
+    def test_large_page_produces_expected_block_count(self) -> None:
+        """200+ <p> tags should produce 200+ blocks."""
+        xhtml = self._make_large_xhtml(200)
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 200
+
+    def test_large_page_emits_warning_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Converting XHTML producing >100 blocks emits a warning with block count and size."""
+        xhtml = self._make_large_xhtml(150)
+        with caplog.at_level(logging.WARNING, logger="confluence_to_notion.converter.converter"):
+            blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 150
+        warning_records = [
+            r for r in caplog.records
+            if r.name == "confluence_to_notion.converter.converter"
+            and r.levelno == logging.WARNING
+        ]
+        assert len(warning_records) == 1
+        assert "150" in warning_records[0].message  # block count
+
+    def test_small_page_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """XHTML under the threshold does NOT emit a warning."""
+        xhtml = self._make_large_xhtml(50)
+        with caplog.at_level(logging.WARNING, logger="confluence_to_notion.converter.converter"):
+            blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 50
+        warning_records = [
+            r for r in caplog.records
+            if r.name == "confluence_to_notion.converter.converter"
+            and r.levelno == logging.WARNING
+        ]
+        assert len(warning_records) == 0

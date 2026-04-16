@@ -179,3 +179,107 @@ async def test_create_page_retry_uses_backoff(
     # Base delays: 1, 2, 4 — with jitter they should still be increasing
     for i in range(1, len(delays)):
         assert delays[i] > delays[i - 1] * 0.5, f"Delay {i} not increasing: {delays}"
+
+
+# --- Chunked block upload tests ---
+
+
+class TestChunkedBlockUpload:
+    """Verify create_page splits blocks into chunks of 100 for Notion API limit."""
+
+    @staticmethod
+    def _make_blocks(n: int) -> list[dict[str, Any]]:
+        """Generate n dummy paragraph blocks."""
+        return [{"object": "block", "type": "paragraph", "id": str(i)} for i in range(n)]
+
+    async def test_150_blocks_chunks_into_create_plus_one_append(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """150 blocks → first 100 in create, remaining 50 appended."""
+        blocks = self._make_blocks(150)
+        fake_response: dict[str, Any] = {"id": "new-page-id", "object": "page"}
+        mock_create = AsyncMock(return_value=fake_response)
+        mock_append = AsyncMock(return_value={})
+
+        with (
+            patch.object(notion_client._client.pages, "create", mock_create),
+            patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await notion_client.create_page(
+                parent_id="parent-123",
+                title="Big Page",
+                blocks=blocks,
+            )
+
+        assert result.page_id == "new-page-id"
+        # create called with first 100 blocks
+        mock_create.assert_called_once()
+        create_children = mock_create.call_args.kwargs.get(
+            "children", mock_create.call_args[1].get("children")
+        )
+        assert len(create_children) == 100
+        # append called once with remaining 50
+        mock_append.assert_called_once_with(block_id="new-page-id", children=blocks[100:])
+        assert len(blocks[100:]) == 50
+
+    async def test_250_blocks_chunks_into_create_plus_two_appends(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """250 blocks → first 100 in create, then two appends (100 + 50)."""
+        blocks = self._make_blocks(250)
+        fake_response: dict[str, Any] = {"id": "page-250", "object": "page"}
+        mock_create = AsyncMock(return_value=fake_response)
+        mock_append = AsyncMock(return_value={})
+
+        with (
+            patch.object(notion_client._client.pages, "create", mock_create),
+            patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await notion_client.create_page(
+                parent_id="parent-123",
+                title="Huge Page",
+                blocks=blocks,
+            )
+
+        assert result.page_id == "page-250"
+        create_children = mock_create.call_args.kwargs.get(
+            "children", mock_create.call_args[1].get("children")
+        )
+        assert len(create_children) == 100
+        assert mock_append.call_count == 2
+        # First append: blocks[100:200] (100 items)
+        first_append_children = mock_append.call_args_list[0].kwargs["children"]
+        assert len(first_append_children) == 100
+        # Second append: blocks[200:250] (50 items)
+        second_append_children = mock_append.call_args_list[1].kwargs["children"]
+        assert len(second_append_children) == 50
+
+    async def test_100_or_fewer_blocks_no_append(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """≤100 blocks — no append call, existing behavior preserved."""
+        blocks = self._make_blocks(100)
+        fake_response: dict[str, Any] = {"id": "page-100", "object": "page"}
+        mock_create = AsyncMock(return_value=fake_response)
+        mock_append = AsyncMock()
+
+        with (
+            patch.object(notion_client._client.pages, "create", mock_create),
+            patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await notion_client.create_page(
+                parent_id="parent-123",
+                title="Normal Page",
+                blocks=blocks,
+            )
+
+        assert result.page_id == "page-100"
+        mock_create.assert_called_once()
+        create_children = mock_create.call_args.kwargs.get(
+            "children", mock_create.call_args[1].get("children")
+        )
+        assert len(create_children) == 100
+        mock_append.assert_not_called()

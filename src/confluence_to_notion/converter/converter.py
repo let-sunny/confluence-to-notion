@@ -6,11 +6,17 @@ No LLM calls — pure Python transformation logic.
 
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
 from confluence_to_notion.agents.schemas import FinalRuleset
+
+logger = logging.getLogger(__name__)
+
+LARGE_PAGE_BLOCK_THRESHOLD = 100  # blocks
+LARGE_PAGE_SIZE_THRESHOLD = 102_400  # bytes (100 KB)
 
 # Confluence XHTML namespace prefixes
 _NS = {
@@ -52,7 +58,17 @@ def convert_page(xhtml: str, ruleset: FinalRuleset) -> list[dict[str, Any]]:
     xml_str = _XHTML_WRAPPER.format(xhtml)
     root = ET.fromstring(xml_str)
 
-    return _convert_children(root, enabled_ids, block_type=None)
+    blocks = _convert_children(root, enabled_ids, block_type=None)
+
+    input_size = len(xhtml.encode())
+    if len(blocks) > LARGE_PAGE_BLOCK_THRESHOLD or input_size > LARGE_PAGE_SIZE_THRESHOLD:
+        logger.warning(
+            "Large page: %d blocks from %.1f KB input — Notion API will require chunked upload",
+            len(blocks),
+            input_size / 1024,
+        )
+
+    return blocks
 
 
 def _convert_children(
