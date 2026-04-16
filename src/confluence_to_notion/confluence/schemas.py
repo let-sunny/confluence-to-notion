@@ -12,6 +12,17 @@ class ConfluencePageSummary(BaseModel):
     title: str
 
 
+class PageTreeNode(BaseModel):
+    """Recursive node representing a page in the Confluence hierarchy."""
+
+    id: str
+    title: str
+    children: list["PageTreeNode"] = []
+
+
+PageTreeNode.model_rebuild()
+
+
 class ConfluencePage(BaseModel):
     """Full Confluence page with XHTML storage body."""
 
