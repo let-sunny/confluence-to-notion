@@ -9,8 +9,10 @@ import pytest
 from confluence_to_notion.agents.schemas import FinalRule, FinalRuleset, ProposedRule
 from confluence_to_notion.converter.converter import convert_page
 from confluence_to_notion.converter.resolution import ResolutionStore
+from confluence_to_notion.converter.schemas import UnresolvedItem
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "nested-macros"
+TABLE_FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "tables"
 
 # --- Helpers ---
 
@@ -866,3 +868,193 @@ class TestMacroIncludeSyncedBlock:
             == "block-arch-001"
         )
         assert result.unresolved == []
+
+
+# --- UnresolvedItem schema ---
+
+
+class TestUnresolvedItemSchema:
+    def test_kind_table_is_valid(self) -> None:
+        """UnresolvedItem must accept kind='table' so future AI resolvers can override."""
+        item = UnresolvedItem(
+            kind="table",
+            identifier="tbl-0",
+            source_page_id="pg-1",
+        )
+        assert item.kind == "table"
+
+
+# --- Table conversion ---
+
+
+class TestTableConversion:
+    """<table> → Notion table block + UnresolvedItem(kind='table')."""
+
+    def test_simple_table_with_thead_and_tbody(self) -> None:
+        """2-column x 2-row table with thead → single Notion table block."""
+        xhtml = (
+            "<table>"
+            "<thead><tr><th>Name</th><th>Role</th></tr></thead>"
+            "<tbody>"
+            "<tr><td>Alice</td><td>Dev</td></tr>"
+            "<tr><td>Bob</td><td>PM</td></tr>"
+            "</tbody>"
+            "</table>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        table = table_blocks[0]["table"]
+        assert table["table_width"] == 2
+        assert table["has_column_header"] is True
+        assert table["has_row_header"] is False
+
+        rows = table["children"]
+        assert len(rows) == 3  # 1 header + 2 data rows
+        for row in rows:
+            assert row["type"] == "table_row"
+            cells = row["table_row"]["cells"]
+            assert len(cells) == 2
+            for cell in cells:
+                assert isinstance(cell, list)
+                for seg in cell:
+                    assert seg["type"] == "text"
+
+        # Verify header row content
+        header_cells = rows[0]["table_row"]["cells"]
+        assert header_cells[0][0]["text"]["content"] == "Name"
+        assert header_cells[1][0]["text"]["content"] == "Role"
+        # Verify first data row
+        first_data_cells = rows[1]["table_row"]["cells"]
+        assert first_data_cells[0][0]["text"]["content"] == "Alice"
+        assert first_data_cells[1][0]["text"]["content"] == "Dev"
+
+    def test_table_preserves_inline_formatting_in_cells(self) -> None:
+        """<strong> and <code> inside <td> → annotations preserved in rich_text."""
+        xhtml = (
+            "<table>"
+            "<tbody>"
+            "<tr>"
+            "<td>Run <code>build</code> for <strong>release</strong></td>"
+            "<td>ok</td>"
+            "</tr>"
+            "</tbody>"
+            "</table>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        rows = table_blocks[0]["table"]["children"]
+        cell = rows[0]["table_row"]["cells"][0]
+        code_segs = [s for s in cell if s.get("annotations", {}).get("code")]
+        assert len(code_segs) == 1
+        assert code_segs[0]["text"]["content"] == "build"
+        bold_segs = [s for s in cell if s.get("annotations", {}).get("bold")]
+        assert len(bold_segs) == 1
+        assert bold_segs[0]["text"]["content"] == "release"
+
+    def test_table_without_thead_has_no_column_header(self) -> None:
+        """Table without <thead> → has_column_header=False, only <tbody> rows."""
+        xhtml = (
+            "<table>"
+            "<tbody>"
+            "<tr><td>a</td><td>b</td></tr>"
+            "<tr><td>c</td><td>d</td></tr>"
+            "</tbody>"
+            "</table>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        table = table_blocks[0]["table"]
+        assert table["has_column_header"] is False
+        assert table["table_width"] == 2
+        rows = table["children"]
+        assert len(rows) == 2
+
+    def test_empty_table_produces_no_blocks(self) -> None:
+        """<table></table> → no blocks, no crash, no unresolved item."""
+        xhtml = "<table></table>"
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert table_blocks == []
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
+
+    def test_non_empty_table_emits_unresolved_item(self) -> None:
+        """Every rendered table emits one UnresolvedItem(kind='table') with context_xhtml."""
+        xhtml = (
+            "<table>"
+            "<tbody><tr><td>a</td><td>b</td></tr></tbody>"
+            "</table>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-42")
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert len(tables_unresolved) == 1
+        item = tables_unresolved[0]
+        assert item.identifier  # non-empty stable id
+        assert item.source_page_id == "pg-42"
+        assert item.context_xhtml is not None
+        assert "<" in item.context_xhtml  # XHTML snippet
+
+    def test_simple_table_fixture(self) -> None:
+        """End-to-end parity: fixture-based Confluence table → Notion table block."""
+        xhtml = (TABLE_FIXTURES_DIR / "simple-table.xhtml").read_text()
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-fixture")
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        table = table_blocks[0]["table"]
+        assert table["table_width"] == 3
+        assert table["has_column_header"] is True
+
+        rows = table["children"]
+        # 1 header + 3 data rows
+        assert len(rows) == 4
+
+        # First data row: **broker** | ready | Run `gradlew build` first
+        first_data_cells = rows[1]["table_row"]["cells"]
+        # cell 0: strong "broker"
+        cell0 = first_data_cells[0]
+        bold_segs = [s for s in cell0 if s.get("annotations", {}).get("bold")]
+        assert len(bold_segs) == 1
+        assert bold_segs[0]["text"]["content"] == "broker"
+        # cell 2: inline code preserved
+        cell2 = first_data_cells[2]
+        code_segs = [s for s in cell2 if s.get("annotations", {}).get("code")]
+        assert len(code_segs) == 1
+        assert code_segs[0]["text"]["content"] == "gradlew build"
+
+    def test_resolved_table_uses_store_blocks(self, tmp_path: Path) -> None:
+        """When store has 'table:{identifier}' with notion_blocks, use them and no unresolved."""
+        # Step 1: run once to discover the stable identifier for this table
+        xhtml = (
+            "<table>"
+            "<tbody><tr><td>a</td><td>b</td></tr></tbody>"
+            "</table>"
+        )
+        first = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        identifier = next(u.identifier for u in first.unresolved if u.kind == "table")
+
+        # Step 2: prime the store with that key → Notion DB reference block
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key=f"table:{identifier}",
+            resolved_by="ai_inference",
+            value={
+                "notion_blocks": [
+                    {
+                        "type": "child_database",
+                        "child_database": {"title": "Team"},
+                    }
+                ]
+            },
+            confidence=0.85,
+        )
+
+        # Step 3: re-run with the store → resolved blocks, no unresolved
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+        assert result.blocks == [
+            {"type": "child_database", "child_database": {"title": "Team"}}
+        ]
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
