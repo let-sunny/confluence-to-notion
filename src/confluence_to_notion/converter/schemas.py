@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 class ResolutionEntry(BaseModel):
     """A single resolved fact stored in resolution.json."""
 
-    resolved_by: Literal["user_input", "ai_inference", "api_call", "auto_lookup"] = Field(
+    resolved_by: Literal[
+        "user_input", "ai_inference", "api_call", "auto_lookup", "notion_migration"
+    ] = Field(
         description="How this entry was resolved",
     )
     value: dict[str, Any] = Field(

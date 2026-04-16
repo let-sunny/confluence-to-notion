@@ -8,6 +8,7 @@ import pytest
 from notion_client import APIResponseError
 
 from confluence_to_notion.config import Settings
+from confluence_to_notion.confluence.schemas import PageTreeNode
 from confluence_to_notion.notion.client import NotionClientWrapper
 from confluence_to_notion.notion.schemas import NotionPageResult
 
@@ -283,3 +284,108 @@ class TestChunkedBlockUpload:
         )
         assert len(create_children) == 100
         mock_append.assert_not_called()
+
+
+# --- Empty subpage + recursive tree creation tests ---
+
+
+def _tree_fixture() -> PageTreeNode:
+    """3-level page tree mirroring tests/unit/test_cli_fetch_tree.py::_fixture_tree."""
+    return PageTreeNode(
+        id="root",
+        title="Root Page",
+        children=[
+            PageTreeNode(id="c1", title="Child 1"),
+            PageTreeNode(
+                id="c2",
+                title="Child 2",
+                children=[PageTreeNode(id="gc1", title="Grandchild 1")],
+            ),
+        ],
+    )
+
+
+async def test_create_subpage_creates_empty_page(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """create_subpage emits a pages.create call with an empty children list."""
+    fake_response: dict[str, Any] = {"id": "np-empty", "object": "page"}
+    mock_create = AsyncMock(return_value=fake_response)
+    with patch.object(notion_client._client.pages, "create", mock_create):
+        page_id = await notion_client.create_subpage(
+            parent_id="parent-xyz", title="Empty Child"
+        )
+    assert page_id == "np-empty"
+    mock_create.assert_called_once_with(
+        parent={"page_id": "parent-xyz"},
+        properties={"title": [{"text": {"content": "Empty Child"}}]},
+        children=[],
+    )
+
+
+async def test_create_subpage_retries_on_429(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """create_subpage inherits the 429 retry path from _create_page_with_retry."""
+    rate_limit_error = _make_api_error(429, "Rate limited")
+    rate_limit_error.status = 429
+    success_response: dict[str, Any] = {"id": "np-after-retry", "object": "page"}
+    mock_create = AsyncMock(side_effect=[rate_limit_error, success_response])
+    with (
+        patch.object(notion_client._client.pages, "create", mock_create),
+        patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        page_id = await notion_client.create_subpage(
+            parent_id="parent-xyz", title="Retry Page"
+        )
+    assert page_id == "np-after-retry"
+    assert mock_create.call_count == 2
+
+
+async def test_create_page_tree_builds_hierarchy(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """create_page_tree creates empty pages for every node and returns a title→id map."""
+    tree = _tree_fixture()
+    # pages.create is invoked in DFS order: Root → Child 1 → Child 2 → Grandchild 1
+    responses = [
+        {"id": "np-root", "object": "page"},
+        {"id": "np-c1", "object": "page"},
+        {"id": "np-c2", "object": "page"},
+        {"id": "np-gc1", "object": "page"},
+    ]
+    mock_create = AsyncMock(side_effect=responses)
+    with patch.object(notion_client._client.pages, "create", mock_create):
+        mapping = await notion_client.create_page_tree(
+            parent_id="parent-xyz", tree=tree
+        )
+
+    assert mapping == {
+        "Root Page": "np-root",
+        "Child 1": "np-c1",
+        "Child 2": "np-c2",
+        "Grandchild 1": "np-gc1",
+    }
+    assert mock_create.call_count == 4
+
+    calls = mock_create.call_args_list
+    # Root is placed under the external parent.
+    assert calls[0].kwargs["parent"] == {"page_id": "parent-xyz"}
+    assert calls[0].kwargs["properties"] == {
+        "title": [{"text": {"content": "Root Page"}}]
+    }
+    assert calls[0].kwargs["children"] == []
+    # Child 1 and Child 2 are placed under the newly-created root.
+    assert calls[1].kwargs["parent"] == {"page_id": "np-root"}
+    assert calls[1].kwargs["properties"] == {
+        "title": [{"text": {"content": "Child 1"}}]
+    }
+    assert calls[2].kwargs["parent"] == {"page_id": "np-root"}
+    assert calls[2].kwargs["properties"] == {
+        "title": [{"text": {"content": "Child 2"}}]
+    }
+    # Grandchild 1 is placed under Child 2.
+    assert calls[3].kwargs["parent"] == {"page_id": "np-c2"}
+    assert calls[3].kwargs["properties"] == {
+        "title": [{"text": {"content": "Grandchild 1"}}]
+    }

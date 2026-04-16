@@ -8,6 +8,7 @@ from typing import Any
 from notion_client import APIResponseError, AsyncClient
 
 from confluence_to_notion.config import Settings
+from confluence_to_notion.confluence.schemas import PageTreeNode
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,29 @@ class NotionClientWrapper:
             await self._append_children_with_retry(page_id, chunk)
 
         return NotionPageResult(page_id=page_id)
+
+    async def create_subpage(self, parent_id: str, title: str) -> str:
+        """Create an empty page under parent_id and return its Notion id.
+
+        Reuses the 429 retry path so rate-limit handling is preserved.
+        """
+        return await self._create_page_with_retry(parent_id, title, [])
+
+    async def create_page_tree(
+        self, parent_id: str, tree: PageTreeNode
+    ) -> dict[str, str]:
+        """Recursively create an empty Notion page tree mirroring ``tree``.
+
+        Pages are created sequentially (serial calls keep the 429 retry
+        contract intact). Returns a ``{confluence_title: notion_page_id}``
+        mapping for every node visited.
+        """
+        new_page_id = await self.create_subpage(parent_id, tree.title)
+        mapping: dict[str, str] = {tree.title: new_page_id}
+        for child in tree.children:
+            child_mapping = await self.create_page_tree(new_page_id, child)
+            mapping.update(child_mapping)
+        return mapping
 
     async def _create_page_with_retry(
         self, parent_id: str, title: str, children: list[dict[str, Any]]
