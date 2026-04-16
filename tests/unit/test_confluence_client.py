@@ -1,13 +1,19 @@
 """Unit tests for the Confluence async client."""
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
 
 from confluence_to_notion.config import Settings
-from confluence_to_notion.confluence.client import ConfluenceClient
+from confluence_to_notion.confluence.client import (
+    _CONNECT_TIMEOUT,
+    _MAX_RETRIES,
+    _READ_TIMEOUT,
+    ConfluenceClient,
+)
 from confluence_to_notion.confluence.schemas import ConfluencePage, ConfluencePageSummary
 
 BASE = "https://test.atlassian.net/wiki/rest/api"
@@ -268,3 +274,133 @@ async def test_public_wiki_no_auth(public_client: ConfluenceClient) -> None:
     page = await public_client.get_page("42")
     assert page.id == "42"
     assert page.space_key == "KAFKA"
+
+
+# --- Timeout and retry ---
+
+
+async def test_client_timeout_configured(confluence_client: ConfluenceClient) -> None:
+    """httpx.AsyncClient is created with connect/read timeout."""
+    async with confluence_client as client:
+        assert client._owned_client is not None
+        timeout = client._owned_client.timeout
+        assert timeout.connect == _CONNECT_TIMEOUT
+        assert timeout.read == _READ_TIMEOUT
+
+
+@respx.mock
+@patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
+async def test_retry_on_transient_5xx(
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
+) -> None:
+    """Transient 5xx followed by success retries and returns result."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(500, json={"message": "Internal Server Error"})
+        return httpx.Response(200, json=_page_json("123", "Retry OK"))
+
+    respx.get(f"{BASE}/content/123").mock(side_effect=_handler)
+
+    async with confluence_client as client:
+        page = await client.get_page("123")
+
+    assert page.id == "123"
+    assert page.title == "Retry OK"
+    assert call_count == 2
+
+
+@respx.mock
+@patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
+async def test_retry_on_timeout_exception(
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
+) -> None:
+    """httpx.TimeoutException triggers retry and succeeds on next attempt."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.TimeoutException("Connection timed out")
+        return httpx.Response(200, json=_page_json("456", "After Timeout"))
+
+    respx.get(f"{BASE}/content/456").mock(side_effect=_handler)
+
+    async with confluence_client as client:
+        page = await client.get_page("456")
+
+    assert page.id == "456"
+    assert call_count == 2
+
+
+@respx.mock
+async def test_no_retry_on_4xx(confluence_client: ConfluenceClient) -> None:
+    """Non-retryable 4xx raises immediately without retry."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(403, json={"message": "Forbidden"})
+
+    respx.get(f"{BASE}/content/forbidden").mock(side_effect=_handler)
+
+    async with confluence_client as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.get_page("forbidden")
+        assert exc_info.value.response.status_code == 403
+
+    assert call_count == 1
+
+
+@respx.mock
+@patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
+async def test_retries_exhausted_raises(
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
+) -> None:
+    """All retries exhausted on persistent 5xx raises after _MAX_RETRIES attempts."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(502, json={"message": "Bad Gateway"})
+
+    respx.get(f"{BASE}/content/bad-gw").mock(side_effect=_handler)
+
+    async with confluence_client as client:
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.get_page("bad-gw")
+        assert exc_info.value.response.status_code == 502
+
+    # 1 initial + _MAX_RETRIES retries
+    assert call_count == 1 + _MAX_RETRIES
+
+
+@respx.mock
+@patch("confluence_to_notion.confluence.client.asyncio.sleep", return_value=None)
+async def test_oneshot_path_retries_on_5xx(
+    mock_sleep: AsyncMock, confluence_client: ConfluenceClient
+) -> None:
+    """One-shot client path (no async-with) retries on transient 5xx."""
+    call_count = 0
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(503, json={"message": "Service Unavailable"})
+        return httpx.Response(200, json=_page_json("789", "Oneshot OK"))
+
+    respx.get(f"{BASE}/content/789").mock(side_effect=_handler)
+
+    # Call without `async with` — exercises the per-attempt AsyncClient branch
+    page = await confluence_client.get_page("789")
+
+    assert page.id == "789"
+    assert page.title == "Oneshot OK"
+    assert call_count == 2

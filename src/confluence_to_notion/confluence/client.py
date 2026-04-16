@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 _API_MAX_PER_PAGE = 250
 # Concurrency limit for parallel page fetches.
 _FETCH_CONCURRENCY = 10
+# Timeout and retry configuration.
+_CONNECT_TIMEOUT = 10.0
+_READ_TIMEOUT = 30.0
+_MAX_RETRIES = 3
+_BACKOFF_BASE = 1.0
 
 
 class ConfluenceClient:
@@ -42,7 +47,10 @@ class ConfluenceClient:
         self._owned_client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "ConfluenceClient":
-        self._owned_client = httpx.AsyncClient(auth=self._auth)
+        self._owned_client = httpx.AsyncClient(
+            auth=self._auth,
+            timeout=httpx.Timeout(_READ_TIMEOUT, connect=_CONNECT_TIMEOUT),
+        )
         return self
 
     async def __aexit__(
@@ -56,15 +64,48 @@ class ConfluenceClient:
             self._owned_client = None
 
     async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Perform a GET request, reusing the connection pool if available."""
-        if self._owned_client:
-            resp = await self._owned_client.get(url, params=params)
-        else:
-            async with httpx.AsyncClient(auth=self._auth) as client:
-                resp = await client.get(url, params=params)
-        resp.raise_for_status()
-        result: dict[str, Any] = resp.json()
-        return result
+        """Perform a GET request with retry on transient failures.
+
+        Retries on httpx.TimeoutException or 5xx HTTP errors with exponential
+        backoff. Non-retryable errors (4xx, parse errors) re-raise immediately.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                if self._owned_client:
+                    resp = await self._owned_client.get(url, params=params)
+                else:
+                    async with httpx.AsyncClient(
+                        auth=self._auth,
+                        timeout=httpx.Timeout(_READ_TIMEOUT, connect=_CONNECT_TIMEOUT),
+                    ) as client:
+                        resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                result: dict[str, Any] = resp.json()
+                return result
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES:
+                    delay = _BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        "Timeout on %s (attempt %d/%d), retrying in %.1fs: %s",
+                        url, attempt + 1, _MAX_RETRIES + 1, delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500:
+                    raise
+                last_exc = exc
+                if attempt < _MAX_RETRIES:
+                    delay = _BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        "%d on %s (attempt %d/%d), retrying in %.1fs",
+                        exc.response.status_code, url,
+                        attempt + 1, _MAX_RETRIES + 1, delay,
+                    )
+                    await asyncio.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
 
     async def get_page(self, page_id: str) -> ConfluencePage:
         """Fetch a single page by ID with its XHTML storage body."""
