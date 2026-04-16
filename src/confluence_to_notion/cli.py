@@ -14,6 +14,7 @@ from rich.console import Console
 from confluence_to_notion.config import Settings
 from confluence_to_notion.confluence.client import ConfluenceClient
 from confluence_to_notion.confluence.schemas import PageTreeNode
+from confluence_to_notion.converter.converter import convert_page
 from confluence_to_notion.converter.resolution import ResolutionStore
 from confluence_to_notion.notion.client import NotionClientWrapper
 
@@ -474,6 +475,121 @@ def migrate_tree(
     console.print(
         f"[green]Created {len(mapping)} Notion pages → {resolution_out}[/green]"
     )
+
+
+@app.command(name="migrate-tree-pages")
+def migrate_tree_pages(
+    root_id: str = typer.Option(
+        ..., "--root-id", help="Confluence root page ID"
+    ),
+    target: str | None = typer.Option(
+        None,
+        "--target",
+        help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)",
+    ),
+    resolution_out: Path = typer.Option(
+        Path("output/resolution.json"),
+        "--resolution-out",
+        help="Where to persist title→Notion page ID mapping",
+    ),
+    rules_file: Path = typer.Option(
+        Path("output/rules.json"), "--rules", help="Path to rules.json"
+    ),
+) -> None:
+    """Run the full 2-pass migration: create the Notion tree, then upload bodies.
+
+    Pass 1 collects the Confluence tree, creates empty Notion pages, and persists
+    a ``page_link:{title}`` resolution store so that internal links can resolve
+    to Notion page IDs. Pass 2 fetches each Confluence page's XHTML, converts it
+    against the resolution store (so internal links emit mention blocks), and
+    appends the resulting blocks to the pre-created Notion page.
+    """
+    from confluence_to_notion.agents.schemas import FinalRuleset
+
+    if not rules_file.exists():
+        console.print(f"[red]Rules file not found: {rules_file}[/red]")
+        raise typer.Exit(code=1)
+
+    settings = _load_settings()
+    parent_id = target or settings.notion_root_page_id
+    if not parent_id:
+        console.print(
+            "[red]No target page ID. Use --target or set NOTION_ROOT_PAGE_ID in .env[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        settings.require_notion()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    try:
+        ruleset = FinalRuleset.model_validate_json(rules_file.read_text())
+    except ValidationError as e:
+        console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
+        raise typer.Exit(code=1) from None
+
+    confluence = ConfluenceClient(settings)
+    notion = NotionClientWrapper(settings)
+
+    async def _run() -> tuple[int, int]:
+        async with confluence:
+            tree = await confluence.collect_page_tree(root_id)
+
+            id_to_notion: dict[str, str] = {}
+            id_to_title: dict[str, str] = {}
+            store = ResolutionStore(resolution_out)
+
+            async def _create_subtree(node: PageTreeNode, parent: str) -> None:
+                notion_page_id = await notion.create_subpage(parent, node.title)
+                id_to_notion[node.id] = notion_page_id
+                id_to_title[node.id] = node.title
+                store.add(
+                    key=f"page_link:{node.title}",
+                    resolved_by="notion_migration",
+                    value={"notion_page_id": notion_page_id},
+                )
+                for child in node.children:
+                    await _create_subtree(child, notion_page_id)
+
+            await _create_subtree(tree, parent_id)
+            store.save()
+
+            succeeded = 0
+            failed = 0
+            for confluence_id, notion_page_id in id_to_notion.items():
+                title = id_to_title[confluence_id]
+                try:
+                    page = await confluence.get_page(confluence_id)
+                    result = convert_page(
+                        page.storage_body,
+                        ruleset,
+                        page_id=confluence_id,
+                        store=store,
+                    )
+                    await notion.append_blocks(notion_page_id, result.blocks)
+                    succeeded += 1
+                    console.print(f"  [green]{title}[/green] → {notion_page_id}")
+                except APIResponseError as e:
+                    failed += 1
+                    console.print(
+                        f"  [red]{title}: Notion API error {e.status} — {e.body}[/red]"
+                    )
+                    raise
+
+            return succeeded, failed
+
+    try:
+        succeeded, failed = asyncio.run(_run())
+    except APIResponseError:
+        raise typer.Exit(code=1) from None
+
+    console.print(
+        f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]"
+    )
+    if failed > 0:
+        raise typer.Exit(code=1)
 
 
 def _extract_title(blocks: list[dict[str, Any]], *, fallback: str) -> str:

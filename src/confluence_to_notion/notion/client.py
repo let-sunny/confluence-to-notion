@@ -74,6 +74,26 @@ class NotionClientWrapper:
         """
         return await self._create_page_with_retry(parent_id, title, [])
 
+    async def append_blocks(
+        self, page_id: str, blocks: list[dict[str, Any]]
+    ) -> None:
+        """Append ``blocks`` to ``page_id`` in NOTION_MAX_CHILDREN-sized chunks.
+
+        Delegates to the shared retry path so rate-limit semantics stay uniform.
+        """
+        if not blocks:
+            return
+        for i in range(0, len(blocks), NOTION_MAX_CHILDREN):
+            chunk = blocks[i : i + NOTION_MAX_CHILDREN]
+            logger.info(
+                "Appending block chunk %d-%d (%d blocks) to page %s",
+                i,
+                i + len(chunk),
+                len(chunk),
+                page_id,
+            )
+            await self._append_children_with_retry(page_id, chunk)
+
     async def create_page_tree(
         self, parent_id: str, tree: PageTreeNode
     ) -> dict[str, str]:

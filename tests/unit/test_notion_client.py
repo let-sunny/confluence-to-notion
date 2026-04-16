@@ -342,6 +342,65 @@ async def test_create_subpage_retries_on_429(
     assert mock_create.call_count == 2
 
 
+# --- append_blocks tests ---
+
+
+class TestAppendBlocks:
+    """Verify the public append_blocks method on NotionClientWrapper."""
+
+    @staticmethod
+    def _make_blocks(n: int) -> list[dict[str, Any]]:
+        return [{"object": "block", "type": "paragraph", "id": str(i)} for i in range(n)]
+
+    async def test_append_blocks_empty_short_circuits(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """Empty block list must not trigger any API call."""
+        mock_append = AsyncMock()
+        with patch.object(notion_client._client.blocks.children, "append", mock_append):
+            await notion_client.append_blocks(page_id="page-abc", blocks=[])
+        mock_append.assert_not_called()
+
+    async def test_append_blocks_chunks_into_100s(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """250 blocks → three append calls of 100, 100, 50."""
+        blocks = self._make_blocks(250)
+        mock_append = AsyncMock(return_value={})
+        with (
+            patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await notion_client.append_blocks(page_id="page-xyz", blocks=blocks)
+
+        assert mock_append.call_count == 3
+        first = mock_append.call_args_list[0].kwargs["children"]
+        second = mock_append.call_args_list[1].kwargs["children"]
+        third = mock_append.call_args_list[2].kwargs["children"]
+        assert len(first) == 100
+        assert len(second) == 100
+        assert len(third) == 50
+        for call in mock_append.call_args_list:
+            assert call.kwargs["block_id"] == "page-xyz"
+
+    async def test_append_blocks_retries_on_429(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """429 during append triggers the shared retry path."""
+        rate_limit_error = _make_api_error(429, "Rate limited")
+        rate_limit_error.status = 429
+        mock_append = AsyncMock(side_effect=[rate_limit_error, {}])
+        with (
+            patch.object(notion_client._client.blocks.children, "append", mock_append),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await notion_client.append_blocks(
+                page_id="page-retry",
+                blocks=[{"object": "block", "type": "paragraph"}],
+            )
+        assert mock_append.call_count == 2
+
+
 async def test_create_page_tree_builds_hierarchy(
     notion_client: NotionClientWrapper,
 ) -> None:
