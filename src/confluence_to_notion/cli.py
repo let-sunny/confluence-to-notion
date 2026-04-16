@@ -316,39 +316,46 @@ def migrate(
         raise typer.Exit(code=1) from None
 
     client = NotionClientWrapper(settings)
-    succeeded = 0
-    failed = 0
 
-    from rich.progress import Progress
+    async def _migrate() -> tuple[int, int]:
+        from rich.progress import Progress
 
-    with Progress(console=console) as progress:
-        task = progress.add_task("Migrating pages...", total=len(xhtml_files))
+        succeeded = 0
+        failed = 0
 
-        for xhtml_path in xhtml_files:
-            try:
-                xhtml = xhtml_path.read_text()
-                blocks = convert_page(xhtml, ruleset)
+        with Progress(console=console) as progress:
+            task = progress.add_task("Migrating pages...", total=len(xhtml_files))
 
-                # Extract title from first heading block, fallback to filename stem
-                title = _extract_title(blocks, fallback=xhtml_path.stem)
+            for xhtml_path in xhtml_files:
+                try:
+                    xhtml = xhtml_path.read_text()
+                    blocks = convert_page(xhtml, ruleset)
+                    title = _extract_title(blocks, fallback=xhtml_path.stem)
 
-                asyncio.run(client.create_page(
-                    parent_id=parent_id, title=title, blocks=blocks
-                ))
-                succeeded += 1
-                console.print(f"  [green]{xhtml_path.name}[/green] → {title}")
-            except APIResponseError as e:
-                failed += 1
-                console.print(
-                    f"  [red]{xhtml_path.name}: Notion API error {e.status} — {e.body}[/red]"
-                )
-            except (OSError, ValueError, KeyError) as e:
-                failed += 1
-                console.print(f"  [red]{xhtml_path.name}: {e}[/red]")
-            finally:
-                progress.advance(task)
+                    await client.create_page(
+                        parent_id=parent_id, title=title, blocks=blocks
+                    )
+                    succeeded += 1
+                    console.print(f"  [green]{xhtml_path.name}[/green] → {title}")
+                except APIResponseError as e:
+                    failed += 1
+                    console.print(
+                        f"  [red]{xhtml_path.name}: Notion API error"
+                        f" {e.status} — {e.body}[/red]"
+                    )
+                except (OSError, ValueError, KeyError) as e:
+                    failed += 1
+                    console.print(f"  [red]{xhtml_path.name}: {e}[/red]")
+                finally:
+                    progress.advance(task)
 
+        return succeeded, failed
+
+    succeeded, failed = asyncio.run(_migrate())
     console.print(f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]")
+
+    if failed > 0:
+        raise typer.Exit(code=1)
 
 
 def _extract_title(blocks: list[dict[str, Any]], *, fallback: str) -> str:

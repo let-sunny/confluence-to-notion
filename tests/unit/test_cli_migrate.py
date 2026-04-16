@@ -8,7 +8,7 @@ import httpx
 from notion_client import APIResponseError
 from typer.testing import CliRunner
 
-from confluence_to_notion.cli import app
+from confluence_to_notion.cli import _extract_title, app
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 runner = CliRunner()
@@ -178,10 +178,11 @@ class TestMigrateErrorHandling:
             ["migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", "t"],
         )
 
-        assert result.exit_code == 0, result.output
+        # Partial failure → exit code 1
+        assert result.exit_code == 1, result.output
         assert mock_client.create_page.call_count == 2
-        # Output should mention failure
-        assert "1" in result.output  # at least mentions the count
+        assert "Failed: 1" in result.output
+        assert "Succeeded: 1" in result.output
 
 
 class TestMigrateValidation:
@@ -228,6 +229,35 @@ class TestMigrateValidation:
             ["migrate", "--rules", str(rules_file), "--input", str(input_dir)],
         )
         assert result.exit_code != 0
+
+
+class TestExtractTitle:
+    """Unit tests for _extract_title helper."""
+
+    def test_extracts_heading_1(self) -> None:
+        blocks = [
+            {"type": "heading_1", "heading_1": {
+                "rich_text": [{"type": "text", "text": {"content": "My Title"}}],
+            }},
+        ]
+        assert _extract_title(blocks, fallback="fallback") == "My Title"
+
+    def test_fallback_when_no_heading(self) -> None:
+        blocks = [
+            {"type": "paragraph", "paragraph": {
+                "rich_text": [{"type": "text", "text": {"content": "Just text"}}],
+            }},
+        ]
+        assert _extract_title(blocks, fallback="page-123") == "page-123"
+
+    def test_fallback_when_heading_has_empty_text(self) -> None:
+        blocks = [
+            {"type": "heading_2", "heading_2": {"rich_text": []}},
+        ]
+        assert _extract_title(blocks, fallback="empty-heading") == "empty-heading"
+
+    def test_fallback_when_no_blocks(self) -> None:
+        assert _extract_title([], fallback="no-blocks") == "no-blocks"
 
 
 class TestMigrateEmptyDirectory:
