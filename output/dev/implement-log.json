@@ -1,0 +1,45 @@
+{
+  "plan_file": "output/dev/plan.json",
+  "decisions": [
+    {
+      "task_id": "task:1",
+      "description": "Used pytest_configure hook in tests/conftest.py to register the 'integration' marker, and created three fixture files under tests/fixtures/integration/.",
+      "reason": "pytest_configure is the standard idiomatic way to register custom markers so pytest does not warn about unknown markers at runtime. Placing fixtures in tests/fixtures/integration/ mirrors the existing fixtures/migrate/ pattern already in the codebase.",
+      "alternatives": [
+        "Register marker in pytest.ini / pyproject.toml [tool.pytest.ini_options] markers list — rejected because the plan explicitly says to use the pytest_configure hook in conftest.py.",
+        "Add addopts = -m 'not integration' to pyproject.toml to skip integration tests by default — not done because pyproject.toml was not in the affected_files list and the test runner supports explicit -m integration filtering."
+      ]
+    },
+    {
+      "task_id": "task:1",
+      "description": "rules.json is a minimal but schema-valid FinalRuleset with three rules covering headings, paragraphs, and list items.",
+      "reason": "The FinalRule model requires rule_id, source_pattern_id, source_description, notion_block_type, mapping_description, example_input, example_output, and confidence. Three rules were included so that page1.xhtml and page2.xhtml each produce a diverse set of block types (headings, paragraphs, bulleted and numbered list items) that can be individually asserted in tests.",
+      "alternatives": [
+        "Empty rules list (source + rules: []) — rejected because with no rules the converter still produces heading/paragraph/list blocks via built-in tag handling, so the tests would pass, but the fixture would not accurately represent a real discover pipeline output.",
+        "Full rule set with macro rules — not needed; the fixture pages have no Confluence macros."
+      ]
+    },
+    {
+      "task_id": "task:2",
+      "description": "Split tests into two classes: TestConvertPage (direct convert_page calls) and TestMigrateDryRun (CLI invocation with mocked NotionClientWrapper). Helper functions _setup_settings, _setup_notion_client, _copy_fixtures, _copy_rules eliminate repetition across the four CLI tests.",
+      "reason": "Separating convert_page tests from CLI tests keeps each test focused on one layer. The helpers keep the test methods short and declarative. This mirrors the existing unit/test_cli_migrate.py pattern.",
+      "alternatives": [
+        "Single monolithic test that does all five steps in sequence — rejected because individual test methods are easier to diagnose on failure.",
+        "Parametrize migrate tests over both fixture pages — rejected; the plan specifically calls for asserting one page's title ('Integration Test Page 1'), so separate tests are clearer."
+      ]
+    },
+    {
+      "task_id": "task:2",
+      "description": "Used unittest.mock.patch on 'confluence_to_notion.cli.NotionClientWrapper' and 'confluence_to_notion.cli._load_settings' rather than patching at the source module.",
+      "reason": "The migrate CLI imports NotionClientWrapper at the top of cli.py and calls it as a local name. Patching at the call site (cli module) is the correct mock target, consistent with the existing test_cli_migrate.py tests.",
+      "alternatives": [
+        "Patch 'confluence_to_notion.notion.client.NotionClientWrapper' — incorrect target; cli.py holds its own reference after the import."
+      ]
+    }
+  ],
+  "known_risks": [
+    "The integration tests do NOT test the actual fetch (Confluence HTTP) or discover (claude -p) pipeline stages — those remain untested end-to-end because they require live credentials. The tests simulate those stages by using pre-written fixture files.",
+    "The integration marker is not excluded from the default pytest run (no addopts in pyproject.toml). Running 'uv run pytest' without -m will include integration tests. This is acceptable because all mocks are in place and no external services are needed; the tests complete in under 1 second.",
+    "Fixture XHTML files use plain HTML tags (h1, p, ul, ol, li) — not Confluence-namespaced XHTML. The converter handles these correctly via its _local_tag() stripping logic, but the fixtures do not exercise Confluence-specific macros (toc, info, code, etc.)."
+  ]
+}
