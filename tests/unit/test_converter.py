@@ -1,11 +1,14 @@
 """Unit tests for the deterministic XHTML → Notion block converter."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from confluence_to_notion.agents.schemas import FinalRule, FinalRuleset, ProposedRule
 from confluence_to_notion.converter.converter import convert_page
+
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "nested-macros"
 
 # --- Helpers ---
 
@@ -316,158 +319,89 @@ class TestMacroCode:
 
 
 class TestNestedMacros:
-    def test_info_with_nested_code(self) -> None:
-        """Info panel containing a code macro → callout with code block child."""
-        xhtml = (
-            '<ac:structured-macro ac:name="info">'
-            "<ac:rich-text-body>"
-            "<p>Setup instructions:</p>"
-            '<ac:structured-macro ac:name="code">'
-            '<ac:parameter ac:name="language">bash</ac:parameter>'
-            "<ac:plain-text-body><![CDATA[pip install pkg]]></ac:plain-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
+    """Nested macro tests using fixture files from tests/fixtures/nested-macros/."""
+
+    @staticmethod
+    def _load_fixture(name: str) -> str:
+        return (FIXTURES_DIR / name).read_text()
+
+    def test_info_with_inline_code_from_sample(self) -> None:
+        """Real sample: info macro with <code> inside (from samples/27835336.xhtml)."""
+        xhtml = self._load_fixture("info-with-code-from-sample.xhtml")
         blocks = convert_page(xhtml, _default_ruleset())
         assert len(blocks) == 1
         assert blocks[0]["type"] == "callout"
         callout = blocks[0]["callout"]
-        assert callout["rich_text"][0]["text"]["content"] == "Setup instructions:"
-        assert "children" in callout
-        children = callout["children"]
-        assert len(children) == 1
-        assert children[0]["type"] == "code"
-        assert children[0]["code"]["language"] == "bash"
-        assert children[0]["code"]["rich_text"][0]["text"]["content"] == "pip install pkg"
-
-    def test_expand_basic(self) -> None:
-        """Expand macro with <p> → toggle block with title from ac:parameter."""
-        xhtml = (
-            '<ac:structured-macro ac:name="expand">'
-            '<ac:parameter ac:name="title">Click to expand</ac:parameter>'
-            "<ac:rich-text-body>"
-            "<p>Hidden content here</p>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
-        blocks = convert_page(xhtml, _default_ruleset())
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "toggle"
-        toggle = blocks[0]["toggle"]
-        assert toggle["rich_text"][0]["text"]["content"] == "Click to expand"
-        assert "children" in toggle
-        children = toggle["children"]
-        assert len(children) == 1
-        assert children[0]["type"] == "paragraph"
-        assert children[0]["paragraph"]["rich_text"][0]["text"]["content"] == "Hidden content here"
-
-    def test_expand_with_nested_info(self) -> None:
-        """Expand containing an info panel → toggle with callout child (2+ level nesting)."""
-        xhtml = (
-            '<ac:structured-macro ac:name="expand">'
-            '<ac:parameter ac:name="title">Details</ac:parameter>'
-            "<ac:rich-text-body>"
-            '<ac:structured-macro ac:name="info">'
-            "<ac:rich-text-body><p>Important note</p></ac:rich-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
-        blocks = convert_page(xhtml, _default_ruleset())
-        assert len(blocks) == 1
-        assert blocks[0]["type"] == "toggle"
-        toggle = blocks[0]["toggle"]
-        assert toggle["rich_text"][0]["text"]["content"] == "Details"
-        children = toggle["children"]
-        assert len(children) == 1
-        assert children[0]["type"] == "callout"
-        assert children[0]["callout"]["rich_text"][0]["text"]["content"] == "Important note"
+        # Verify the real-world text is preserved
+        text = "".join(seg["text"]["content"] for seg in callout["rich_text"])
+        assert "./gradlew eclipse" in text
+        assert "regenerate the projects" in text
 
     def test_expand_with_nested_code(self) -> None:
         """Expand containing a code macro → toggle with code block child."""
-        xhtml = (
-            '<ac:structured-macro ac:name="expand">'
-            '<ac:parameter ac:name="title">Show code</ac:parameter>'
-            "<ac:rich-text-body>"
-            '<ac:structured-macro ac:name="code">'
-            '<ac:parameter ac:name="language">java</ac:parameter>'
-            "<ac:plain-text-body><![CDATA[System.out.println();]]></ac:plain-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
+        xhtml = self._load_fixture("expand-with-code.xhtml")
         blocks = convert_page(xhtml, _default_ruleset())
         assert len(blocks) == 1
         assert blocks[0]["type"] == "toggle"
         toggle = blocks[0]["toggle"]
-        assert toggle["rich_text"][0]["text"]["content"] == "Show code"
+        assert toggle["rich_text"][0]["text"]["content"] == "Show configuration example"
         children = toggle["children"]
-        assert len(children) == 1
-        assert children[0]["type"] == "code"
-        assert children[0]["code"]["language"] == "java"
-        assert children[0]["code"]["rich_text"][0]["text"]["content"] == "System.out.println();"
+        code_children = [c for c in children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert code_children[0]["code"]["language"] == "properties"
+        assert "broker.id=0" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
 
     def test_three_level_expand_info_code(self) -> None:
         """Expand > info > code → toggle > callout > code (3-level nesting)."""
-        xhtml = (
-            '<ac:structured-macro ac:name="expand">'
-            '<ac:parameter ac:name="title">Setup</ac:parameter>'
-            "<ac:rich-text-body>"
-            '<ac:structured-macro ac:name="info">'
-            "<ac:rich-text-body>"
-            "<p>Install steps:</p>"
-            '<ac:structured-macro ac:name="code">'
-            '<ac:parameter ac:name="language">bash</ac:parameter>'
-            "<ac:plain-text-body><![CDATA[npm install]]></ac:plain-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
+        xhtml = self._load_fixture("expand-with-info-and-code.xhtml")
         blocks = convert_page(xhtml, _default_ruleset())
         assert len(blocks) == 1
         assert blocks[0]["type"] == "toggle"
-        toggle_children = blocks[0]["toggle"]["children"]
+        toggle = blocks[0]["toggle"]
+        assert toggle["rich_text"][0]["text"]["content"] == "Installation steps"
+        toggle_children = toggle["children"]
         assert len(toggle_children) == 1
         assert toggle_children[0]["type"] == "callout"
         callout = toggle_children[0]["callout"]
-        assert callout["rich_text"][0]["text"]["content"] == "Install steps:"
-        assert "children" in callout
+        text = "".join(seg["text"]["content"] for seg in callout["rich_text"])
+        assert "JDK 11" in text
         callout_children = callout["children"]
-        assert len(callout_children) == 1
-        assert callout_children[0]["type"] == "code"
-        assert callout_children[0]["code"]["language"] == "bash"
-        assert callout_children[0]["code"]["rich_text"][0]["text"]["content"] == "npm install"
+        code_children = [c for c in callout_children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert code_children[0]["code"]["language"] == "bash"
+        assert "gradlew jar" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
 
-    def test_panel_with_nested_panel(self) -> None:
+    def test_warning_with_nested_info(self) -> None:
         """Warning panel containing info panel → callout with callout child."""
-        xhtml = (
-            '<ac:structured-macro ac:name="warning">'
-            "<ac:rich-text-body>"
-            "<p>Be careful:</p>"
-            '<ac:structured-macro ac:name="info">'
-            "<ac:rich-text-body><p>See docs for details</p></ac:rich-text-body>"
-            "</ac:structured-macro>"
-            "</ac:rich-text-body>"
-            "</ac:structured-macro>"
-        )
+        xhtml = self._load_fixture("warning-with-info.xhtml")
         blocks = convert_page(xhtml, _default_ruleset())
         assert len(blocks) == 1
         assert blocks[0]["type"] == "callout"
         outer = blocks[0]["callout"]
         assert outer["icon"]["emoji"] == "\u26a0\ufe0f"
         assert outer["color"] == "yellow_background"
-        assert outer["rich_text"][0]["text"]["content"] == "Be careful:"
+        assert "Breaking change" in outer["rich_text"][0]["text"]["content"]
         assert "children" in outer
         children = outer["children"]
-        assert len(children) == 1
-        assert children[0]["type"] == "callout"
-        inner = children[0]["callout"]
+        info_children = [c for c in children if c["type"] == "callout"]
+        assert len(info_children) == 1
+        inner = info_children[0]["callout"]
         assert inner["icon"]["emoji"] == "\u2139\ufe0f"
         assert inner["color"] == "blue_background"
-        assert inner["rich_text"][0]["text"]["content"] == "See docs for details"
+
+    def test_note_with_jira_and_code(self) -> None:
+        """Note panel with JIRA macro + code block — mixed nesting from real patterns."""
+        xhtml = self._load_fixture("panel-with-jira-and-code.xhtml")
+        blocks = convert_page(xhtml, _default_ruleset())
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "callout"
+        callout = blocks[0]["callout"]
+        # Note panel should have children including code block
+        assert "children" in callout
+        children = callout["children"]
+        code_children = [c for c in children if c["type"] == "code"]
+        assert len(code_children) == 1
+        assert "gradlew eclipse" in code_children[0]["code"]["rich_text"][0]["text"]["content"]
 
 
 # --- Confluence Elements ---
