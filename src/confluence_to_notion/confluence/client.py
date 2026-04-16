@@ -9,7 +9,11 @@ from typing import Any
 import httpx
 
 from confluence_to_notion.config import Settings
-from confluence_to_notion.confluence.schemas import ConfluencePage, ConfluencePageSummary
+from confluence_to_notion.confluence.schemas import (
+    ConfluencePage,
+    ConfluencePageSummary,
+    PageTreeNode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +214,70 @@ class ConfluenceClient:
             file_path.write_text(page.storage_body, encoding="utf-8")
             saved.append(file_path)
         return saved
+
+    async def get_child_pages(self, page_id: str) -> list[ConfluencePageSummary]:
+        """Fetch child pages of a given page with automatic pagination.
+
+        Returns a list of ConfluencePageSummary for all direct children.
+        """
+        url = f"{self._base}/content/{page_id}/child/page"
+        collected: list[ConfluencePageSummary] = []
+        start = 0
+
+        while True:
+            params: dict[str, str | int] = {"limit": _API_MAX_PER_PAGE, "start": start}
+            data = await self._get(url, params)
+            results: list[dict[str, Any]] = data.get("results", [])
+            if not results:
+                break
+            collected.extend(
+                ConfluencePageSummary(id=r["id"], title=r["title"]) for r in results
+            )
+            if "_links" not in data or "next" not in data["_links"]:
+                break
+            start += len(results)
+
+        return collected
+
+    async def collect_page_tree(
+        self, root_id: str, max_depth: int = 10
+    ) -> PageTreeNode:
+        """Recursively build a page tree starting from root_id.
+
+        Fetches the root page title, then recursively collects children
+        up to max_depth levels deep. Uses _FETCH_CONCURRENCY semaphore
+        to limit concurrent requests.
+        """
+        semaphore = asyncio.Semaphore(_FETCH_CONCURRENCY)
+
+        # Fetch root page title (expand="" to skip body/version payload)
+        root_data = await self._get(
+            f"{self._base}/content/{root_id}", params={"expand": ""}
+        )
+        root_title: str = root_data.get("title", root_id)
+
+        async def _build_node(
+            page_id: str, title: str, depth: int
+        ) -> PageTreeNode:
+            if depth >= max_depth:
+                return PageTreeNode(id=page_id, title=title)
+
+            # Semaphore covers the full pagination loop inside get_child_pages
+            # to prevent request storms on wide trees.
+            async with semaphore:
+                children_summaries = await self.get_child_pages(page_id)
+
+            child_nodes = await asyncio.gather(
+                *[
+                    _build_node(c.id, c.title, depth + 1)
+                    for c in children_summaries
+                ]
+            )
+            return PageTreeNode(
+                id=page_id, title=title, children=list(child_nodes)
+            )
+
+        return await _build_node(root_id, root_title, 0)
 
     async def _fetch_summaries(
         self, summaries: list[ConfluencePageSummary]

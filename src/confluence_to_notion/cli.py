@@ -82,6 +82,43 @@ def fetch(
             console.print(f"  {p}")
 
 
+@app.command(name="fetch-tree")
+def fetch_tree(
+    root_id: str = typer.Option(..., "--root-id", help="Confluence root page ID"),
+    output: Path = typer.Option(
+        Path("output/page-tree.json"), "--output", help="Output JSON path"
+    ),
+) -> None:
+    """Fetch the Confluence page tree starting from a root page.
+
+    Recursively collects child pages and writes the hierarchy as JSON.
+
+    Examples:
+        cli fetch-tree --root-id 12345
+        cli fetch-tree --root-id 12345 --output my-tree.json
+    """
+    settings = _load_settings()
+    client = ConfluenceClient(settings)
+
+    async def _run() -> None:
+        async with client:
+            tree = await client.collect_page_tree(root_id)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(tree.model_dump_json(indent=2) + "\n")
+
+    try:
+        asyncio.run(_run())
+    except httpx.HTTPStatusError as e:
+        msg = f"Confluence API error: {e.response.status_code} {e.response.text}"
+        console.print(f"[red]{msg}[/red]")
+        raise typer.Exit(code=1) from None
+    except httpx.ConnectError as e:
+        console.print(f"[red]Cannot connect to Confluence: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    console.print(f"[green]Page tree saved to {output}[/green]")
+
+
 @app.command(name="notion-ping")
 def notion_ping() -> None:
     """Validate Notion API token by fetching bot user info."""

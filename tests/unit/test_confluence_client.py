@@ -14,7 +14,11 @@ from confluence_to_notion.confluence.client import (
     _READ_TIMEOUT,
     ConfluenceClient,
 )
-from confluence_to_notion.confluence.schemas import ConfluencePage, ConfluencePageSummary
+from confluence_to_notion.confluence.schemas import (
+    ConfluencePage,
+    ConfluencePageSummary,
+    PageTreeNode,
+)
 
 BASE = "https://test.atlassian.net/wiki/rest/api"
 PUBLIC_BASE = "https://cwiki.apache.org/confluence/rest/api"
@@ -404,3 +408,173 @@ async def test_oneshot_path_retries_on_5xx(
     assert page.id == "789"
     assert page.title == "Oneshot OK"
     assert call_count == 2
+
+
+# --- PageTreeNode schema ---
+
+
+class TestPageTreeNode:
+    """PageTreeNode model validation."""
+
+    def test_flat_node(self) -> None:
+        node = PageTreeNode(id="1", title="Root")
+        assert node.id == "1"
+        assert node.title == "Root"
+        assert node.children == []
+
+    def test_nested_children(self) -> None:
+        node = PageTreeNode(
+            id="1",
+            title="Root",
+            children=[
+                PageTreeNode(id="2", title="Child A"),
+                PageTreeNode(
+                    id="3",
+                    title="Child B",
+                    children=[PageTreeNode(id="4", title="Grandchild")],
+                ),
+            ],
+        )
+        assert len(node.children) == 2
+        assert node.children[1].children[0].id == "4"
+
+    def test_serialization_round_trip(self) -> None:
+        node = PageTreeNode(
+            id="1",
+            title="Root",
+            children=[PageTreeNode(id="2", title="Child")],
+        )
+        json_str = node.model_dump_json()
+        restored = PageTreeNode.model_validate_json(json_str)
+        assert restored == node
+
+
+# --- get_child_pages ---
+
+
+@respx.mock
+async def test_get_child_pages(confluence_client: ConfluenceClient) -> None:
+    """Fetches child page summaries for a given page ID."""
+    respx.get(f"{BASE}/content/root/child/page").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"id": "c1", "title": "Child 1"},
+                    {"id": "c2", "title": "Child 2"},
+                ],
+            },
+        )
+    )
+    children = await confluence_client.get_child_pages("root")
+
+    assert len(children) == 2
+    assert all(isinstance(c, ConfluencePageSummary) for c in children)
+    assert children[0].id == "c1"
+    assert children[1].id == "c2"
+
+
+@respx.mock
+async def test_get_child_pages_empty(confluence_client: ConfluenceClient) -> None:
+    """Returns empty list when a page has no children."""
+    respx.get(f"{BASE}/content/leaf/child/page").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    children = await confluence_client.get_child_pages("leaf")
+    assert children == []
+
+
+@respx.mock
+async def test_get_child_pages_pagination(confluence_client: ConfluenceClient) -> None:
+    """Handles pagination when children span multiple API pages."""
+    page1 = {
+        "results": [{"id": f"{i}", "title": f"P{i}"} for i in range(25)],
+        "_links": {"next": "/rest/api/content/root/child/page?start=25"},
+    }
+    page2 = {
+        "results": [{"id": "25", "title": "P25"}],
+    }
+
+    def _route(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("start", "0"))
+        return httpx.Response(200, json=page1 if start == 0 else page2)
+
+    respx.get(f"{BASE}/content/root/child/page").mock(side_effect=_route)
+    children = await confluence_client.get_child_pages("root")
+
+    assert len(children) == 26
+
+
+# --- collect_page_tree ---
+
+
+@respx.mock
+async def test_collect_page_tree(confluence_client: ConfluenceClient) -> None:
+    """Builds a recursive tree from root → children → grandchildren."""
+    # Root has two children
+    respx.get(f"{BASE}/content/root/child/page").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [
+                {"id": "a", "title": "A"},
+                {"id": "b", "title": "B"},
+            ]},
+        )
+    )
+    # Child A has one grandchild
+    respx.get(f"{BASE}/content/a/child/page").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"id": "a1", "title": "A1"}]},
+        )
+    )
+    # Child B and grandchild A1 are leaves
+    respx.get(f"{BASE}/content/b/child/page").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    respx.get(f"{BASE}/content/a1/child/page").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    # Mock root page title lookup
+    respx.get(f"{BASE}/content/root").mock(
+        return_value=httpx.Response(200, json=_page_json("root", "Root Page"))
+    )
+
+    tree = await confluence_client.collect_page_tree("root")
+
+    assert isinstance(tree, PageTreeNode)
+    assert tree.id == "root"
+    assert tree.title == "Root Page"
+    assert len(tree.children) == 2
+    child_a = next(c for c in tree.children if c.id == "a")
+    assert len(child_a.children) == 1
+    assert child_a.children[0].id == "a1"
+
+
+@respx.mock
+async def test_collect_page_tree_depth_limit(confluence_client: ConfluenceClient) -> None:
+    """Stops recursion at max_depth."""
+    respx.get(f"{BASE}/content/root").mock(
+        return_value=httpx.Response(200, json=_page_json("root", "Root"))
+    )
+    respx.get(f"{BASE}/content/root/child/page").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"id": "d1", "title": "Depth 1"}]},
+        )
+    )
+    # depth-1 children should NOT be fetched when max_depth=1
+    respx.get(f"{BASE}/content/d1/child/page").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"id": "d2", "title": "Depth 2"}]},
+        )
+    )
+
+    tree = await confluence_client.collect_page_tree("root", max_depth=1)
+
+    assert tree.id == "root"
+    assert len(tree.children) == 1
+    assert tree.children[0].id == "d1"
+    # At max_depth=1, children of d1 should NOT be fetched
+    assert tree.children[0].children == []
