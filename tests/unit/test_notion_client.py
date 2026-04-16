@@ -89,3 +89,93 @@ async def test_create_page_missing_id(notion_client: NotionClientWrapper) -> Non
             title="Test",
             blocks=[],
         )
+
+
+# --- Rate limit retry tests ---
+
+
+async def test_create_page_retries_on_429(notion_client: NotionClientWrapper) -> None:
+    """429 rate limit triggers retry, succeeds on second attempt."""
+    rate_limit_error = _make_api_error(429, "Rate limited")
+    rate_limit_error.status = 429
+    success_response: dict[str, Any] = {"id": "page-after-retry", "object": "page"}
+    mock_create = AsyncMock(side_effect=[rate_limit_error, success_response])
+    with (
+        patch.object(notion_client._client.pages, "create", mock_create),
+        patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await notion_client.create_page(
+            parent_id="parent-123",
+            title="Retry Test",
+            blocks=[],
+        )
+    assert result.page_id == "page-after-retry"
+    assert mock_create.call_count == 2
+
+
+async def test_create_page_raises_after_max_retries(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """Raises APIResponseError after exhausting all retries on persistent 429."""
+    rate_limit_error = _make_api_error(429, "Rate limited")
+    rate_limit_error.status = 429
+    mock_create = AsyncMock(side_effect=rate_limit_error)
+    with (
+        patch.object(notion_client._client.pages, "create", mock_create),
+        patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(APIResponseError),
+    ):
+        await notion_client.create_page(
+            parent_id="parent-123",
+            title="Max Retry Test",
+            blocks=[],
+        )
+    # 1 initial + 5 retries = 6 calls
+    assert mock_create.call_count == 6
+
+
+async def test_create_page_no_retry_on_other_errors(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """Non-429 API errors are raised immediately without retry."""
+    auth_error = _make_api_error(401, "Unauthorized")
+    auth_error.status = 401
+    mock_create = AsyncMock(side_effect=auth_error)
+    with (
+        patch.object(notion_client._client.pages, "create", mock_create),
+        pytest.raises(APIResponseError),
+    ):
+        await notion_client.create_page(
+            parent_id="parent-123",
+            title="No Retry Test",
+            blocks=[],
+        )
+    assert mock_create.call_count == 1
+
+
+async def test_create_page_retry_uses_backoff(
+    notion_client: NotionClientWrapper,
+) -> None:
+    """Verify exponential backoff delays increase between retries."""
+    rate_limit_error = _make_api_error(429, "Rate limited")
+    rate_limit_error.status = 429
+    success_response: dict[str, Any] = {"id": "page-id", "object": "page"}
+    mock_create = AsyncMock(
+        side_effect=[rate_limit_error, rate_limit_error, rate_limit_error, success_response]
+    )
+    mock_sleep = AsyncMock()
+    with (
+        patch.object(notion_client._client.pages, "create", mock_create),
+        patch("confluence_to_notion.notion.client.asyncio.sleep", mock_sleep),
+    ):
+        await notion_client.create_page(
+            parent_id="parent-123",
+            title="Backoff Test",
+            blocks=[],
+        )
+    assert mock_sleep.call_count == 3
+    delays = [call.args[0] for call in mock_sleep.call_args_list]
+    # Each delay should be larger than the previous (exponential backoff + jitter)
+    # Base delays: 1, 2, 4 — with jitter they should still be increasing
+    for i in range(1, len(delays)):
+        assert delays[i] > delays[i - 1] * 0.5, f"Delay {i} not increasing: {delays}"

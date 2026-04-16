@@ -1,6 +1,8 @@
 """Async wrapper over the official notion-client SDK."""
 
+import asyncio
 import logging
+import random
 from typing import Any
 
 from notion_client import APIResponseError, AsyncClient
@@ -9,6 +11,9 @@ from confluence_to_notion.config import Settings
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 5
+BASE_DELAY = 1.0  # seconds
 
 
 class NotionClientWrapper:
@@ -36,10 +41,31 @@ class NotionClientWrapper:
     async def create_page(
         self, parent_id: str, title: str, blocks: list[dict[str, Any]]
     ) -> NotionPageResult:
-        """Create a page under the given parent and return a NotionPageResult."""
-        resp: Any = await self._client.pages.create(
-            parent={"page_id": parent_id},
-            properties={"title": [{"text": {"content": title}}]},
-            children=blocks,
-        )
-        return NotionPageResult(page_id=resp["id"])
+        """Create a page under the given parent and return a NotionPageResult.
+
+        Retries up to MAX_RETRIES times on 429 (rate limit) with exponential backoff.
+        """
+        last_error: APIResponseError | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp: Any = await self._client.pages.create(
+                    parent={"page_id": parent_id},
+                    properties={"title": [{"text": {"content": title}}]},
+                    children=blocks,
+                )
+                return NotionPageResult(page_id=resp["id"])
+            except APIResponseError as e:
+                if e.status != 429 or attempt == MAX_RETRIES:
+                    raise
+                last_error = e
+                delay = BASE_DELAY * (2**attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "Notion rate limited (429), retry %d/%d in %.1fs",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
+        assert last_error is not None  # unreachable, satisfies mypy
+        raise last_error
