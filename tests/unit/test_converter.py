@@ -671,8 +671,8 @@ class TestResolvedConversion:
         assert result.blocks[0]["type"] == "paragraph"
         assert len(result.unresolved) == 1
 
-    def test_resolved_page_link_uses_notion_url(self, tmp_path: Path) -> None:
-        """Page link resolved in store → real Notion URL, no unresolved."""
+    def test_resolved_page_link_uses_mention(self, tmp_path: Path) -> None:
+        """Page link resolved in store → Notion page mention segment, no unresolved."""
         store = ResolutionStore(tmp_path / "res.json")
         store.add(
             key="page_link:Setup Guide",
@@ -687,10 +687,53 @@ class TestResolvedConversion:
         result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
 
         rt = result.blocks[0]["paragraph"]["rich_text"]
-        link_seg = next(s for s in rt if s["text"].get("link"))
-        assert "abc123def456" in link_seg["text"]["link"]["url"]
-        assert "placeholder" not in link_seg["text"]["link"]["url"]
-        # No unresolved items for this link
+        mention_segs = [s for s in rt if s.get("type") == "mention"]
+        assert len(mention_segs) == 1
+        mention = mention_segs[0]
+        assert mention["mention"] == {"type": "page", "page": {"id": "abc123def456"}}
+        assert mention["plain_text"] == "Setup Guide"
+        # No text segment carrying a notion.so URL
+        for seg in rt:
+            if seg.get("type") == "text":
+                assert "notion.so" not in (seg.get("text", {}).get("link") or {}).get("url", "")
+
+    def test_resolved_page_link_mention_uses_link_body_text(self, tmp_path: Path) -> None:
+        """When plain-text-link-body is present, mention plain_text uses it."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="page_link:Setup Guide",
+            resolved_by="auto_lookup",
+            value={"notion_page_id": "abc123def456"},
+        )
+        xhtml = (
+            "<p>See "
+            '<ac:link><ri:page ri:content-title="Setup Guide" />'
+            "<ac:plain-text-link-body>the setup doc</ac:plain-text-link-body>"
+            "</ac:link>"
+            "</p>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        rt = result.blocks[0]["paragraph"]["rich_text"]
+        mention_segs = [s for s in rt if s.get("type") == "mention"]
+        assert len(mention_segs) == 1
+        assert mention_segs[0]["plain_text"] == "the setup doc"
+
+    def test_resolved_page_link_emits_no_unresolved(self, tmp_path: Path) -> None:
+        """Mention path must NOT append an UnresolvedItem of kind 'page_link'."""
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key="page_link:Setup Guide",
+            resolved_by="auto_lookup",
+            value={"notion_page_id": "abc123def456"},
+        )
+        xhtml = (
+            "<p>See "
+            '<ac:link><ri:page ri:content-title="Setup Guide" /></ac:link>'
+            "</p>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
         page_links = [u for u in result.unresolved if u.kind == "page_link"]
         assert page_links == []
 
