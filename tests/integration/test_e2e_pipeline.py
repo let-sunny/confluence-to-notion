@@ -35,7 +35,7 @@ class TestConvertPage:
         xhtml = (FIXTURE_DIR / "page1.xhtml").read_text()
         ruleset = FinalRuleset.model_validate_json((FIXTURE_DIR / "rules.json").read_text())
 
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
 
         assert len(blocks) > 0
 
@@ -43,7 +43,7 @@ class TestConvertPage:
         xhtml = (FIXTURE_DIR / "page1.xhtml").read_text()
         ruleset = FinalRuleset.model_validate_json((FIXTURE_DIR / "rules.json").read_text())
 
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
 
         for block in blocks:
             assert "type" in block, f"Block missing 'type': {block}"
@@ -54,7 +54,7 @@ class TestConvertPage:
         xhtml = (FIXTURE_DIR / "page1.xhtml").read_text()
         ruleset = FinalRuleset.model_validate_json((FIXTURE_DIR / "rules.json").read_text())
 
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
 
         block_types = {b["type"] for b in blocks}
         assert any(t.startswith("heading") for t in block_types), "Expected at least one heading"
@@ -64,7 +64,7 @@ class TestConvertPage:
         xhtml = (FIXTURE_DIR / "page2.xhtml").read_text()
         ruleset = FinalRuleset.model_validate_json((FIXTURE_DIR / "rules.json").read_text())
 
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
 
         assert len(blocks) > 0
 
@@ -72,7 +72,7 @@ class TestConvertPage:
         xhtml = (FIXTURE_DIR / "page2.xhtml").read_text()
         ruleset = FinalRuleset.model_validate_json((FIXTURE_DIR / "rules.json").read_text())
 
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
 
         list_items = [b for b in blocks if b["type"] == "numbered_list_item"]
         assert list_items, "Expected numbered list items in page2.xhtml"
