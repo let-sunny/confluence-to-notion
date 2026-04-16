@@ -252,11 +252,15 @@ def convert(
 
     for xhtml_path in xhtml_files:
         xhtml = xhtml_path.read_text()
-        blocks = convert_page(xhtml, ruleset)
+        result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
         out_file = output_dir / f"{xhtml_path.stem}.json"
-        out_file.write_text(json.dumps(blocks, indent=2, ensure_ascii=False) + "\n")
+        out_file.write_text(
+            json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n"
+        )
         converted += 1
-        console.print(f"  {xhtml_path.name} → {out_file.name} ({len(blocks)} blocks)")
+        console.print(
+            f"  {xhtml_path.name} → {out_file.name} ({len(result.blocks)} blocks)"
+        )
 
     console.print(f"[green]Converted {converted} pages → {output_dir}[/green]")
 
@@ -329,11 +333,11 @@ def migrate(
             for xhtml_path in xhtml_files:
                 try:
                     xhtml = xhtml_path.read_text()
-                    blocks = convert_page(xhtml, ruleset)
-                    title = _extract_title(blocks, fallback=xhtml_path.stem)
+                    result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
+                    title = _extract_title(result.blocks, fallback=xhtml_path.stem)
 
                     await client.create_page(
-                        parent_id=parent_id, title=title, blocks=blocks
+                        parent_id=parent_id, title=title, blocks=result.blocks
                     )
                     succeeded += 1
                     console.print(f"  [green]{xhtml_path.name}[/green] → {title}")

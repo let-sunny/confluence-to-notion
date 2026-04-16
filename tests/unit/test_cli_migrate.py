@@ -9,6 +9,7 @@ from notion_client import APIResponseError
 from typer.testing import CliRunner
 
 from confluence_to_notion.cli import _extract_title, app
+from confluence_to_notion.converter.schemas import ConversionResult
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 runner = CliRunner()
@@ -27,34 +28,36 @@ def _make_api_error(status: int, message: str) -> APIResponseError:
     )
 
 
-def _fake_blocks() -> list[dict[str, Any]]:
-    """Return minimal Notion blocks with a heading for title extraction."""
-    return [
-        {
-            "type": "heading_1",
-            "heading_1": {
-                "rich_text": [{"type": "text", "text": {"content": "Test Page Title"}}],
+def _fake_result() -> ConversionResult:
+    """Return a ConversionResult with minimal blocks for title extraction."""
+    return ConversionResult(
+        blocks=[
+            {
+                "type": "heading_1",
+                "heading_1": {
+                    "rich_text": [{"type": "text", "text": {"content": "Test Page Title"}}],
+                },
             },
-        },
-        {
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {"content": "This is a test paragraph for migration."},
-                    },
-                ],
+            {
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {"content": "This is a test paragraph for migration."},
+                        },
+                    ],
+                },
             },
-        },
-    ]
+        ]
+    )
 
 
 class TestMigrateHappyPath:
     """Happy path: converts XHTML files and publishes to Notion."""
 
     @patch("confluence_to_notion.cli.NotionClientWrapper")
-    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_blocks())
+    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_result())
     @patch("confluence_to_notion.cli._load_settings")
     def test_migrate_success(
         self,
@@ -101,7 +104,7 @@ class TestMigrateHappyPath:
         assert call_args.kwargs["title"] == "Test Page Title"
 
     @patch("confluence_to_notion.cli.NotionClientWrapper")
-    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_blocks())
+    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_result())
     @patch("confluence_to_notion.cli._load_settings")
     def test_migrate_uses_root_page_id_when_no_target(
         self,
@@ -142,7 +145,7 @@ class TestMigrateErrorHandling:
     """When create_page raises APIResponseError, that page is skipped."""
 
     @patch("confluence_to_notion.cli.NotionClientWrapper")
-    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_blocks())
+    @patch("confluence_to_notion.converter.converter.convert_page", return_value=_fake_result())
     @patch("confluence_to_notion.cli._load_settings")
     def test_api_error_skips_page_continues(
         self,

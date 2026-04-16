@@ -108,7 +108,7 @@ def _default_ruleset() -> FinalRuleset:
 
 class TestHeadings:
     def test_h1(self) -> None:
-        blocks = convert_page("<h1>Title</h1>", _default_ruleset())
+        blocks = convert_page("<h1>Title</h1>", _default_ruleset()).blocks
         assert blocks == [
             {
                 "type": "heading_1",
@@ -119,22 +119,22 @@ class TestHeadings:
         ]
 
     def test_h2(self) -> None:
-        blocks = convert_page("<h2>Section</h2>", _default_ruleset())
+        blocks = convert_page("<h2>Section</h2>", _default_ruleset()).blocks
         assert blocks[0]["type"] == "heading_2"
 
     def test_h3(self) -> None:
-        blocks = convert_page("<h3>Subsection</h3>", _default_ruleset())
+        blocks = convert_page("<h3>Subsection</h3>", _default_ruleset()).blocks
         assert blocks[0]["type"] == "heading_3"
 
     def test_h4_h5_h6_fallback_to_h3(self) -> None:
         """Notion only supports h1-h3; h4+ should map to h3."""
-        blocks = convert_page("<h4>Deep heading</h4>", _default_ruleset())
+        blocks = convert_page("<h4>Deep heading</h4>", _default_ruleset()).blocks
         assert blocks[0]["type"] == "heading_3"
 
 
 class TestParagraphs:
     def test_simple_paragraph(self) -> None:
-        blocks = convert_page("<p>Hello world</p>", _default_ruleset())
+        blocks = convert_page("<p>Hello world</p>", _default_ruleset()).blocks
         assert blocks == [
             {
                 "type": "paragraph",
@@ -145,15 +145,15 @@ class TestParagraphs:
         ]
 
     def test_empty_paragraph_skipped(self) -> None:
-        blocks = convert_page("<p></p>", _default_ruleset())
+        blocks = convert_page("<p></p>", _default_ruleset()).blocks
         assert blocks == []
 
     def test_br_only_paragraph_skipped(self) -> None:
-        blocks = convert_page("<p><br /></p>", _default_ruleset())
+        blocks = convert_page("<p><br /></p>", _default_ruleset()).blocks
         assert blocks == []
 
     def test_paragraph_with_inline_code(self) -> None:
-        blocks = convert_page("<p>Run <code>gradle</code> now</p>", _default_ruleset())
+        blocks = convert_page("<p>Run <code>gradle</code> now</p>", _default_ruleset()).blocks
         rich_text = blocks[0]["paragraph"]["rich_text"]
         assert len(rich_text) == 3
         assert rich_text[0] == {"type": "text", "text": {"content": "Run "}}
@@ -162,12 +162,13 @@ class TestParagraphs:
         assert rich_text[2] == {"type": "text", "text": {"content": " now"}}
 
     def test_paragraph_with_bold(self) -> None:
-        blocks = convert_page("<p>This is <strong>bold</strong> text</p>", _default_ruleset())
+        xhtml = "<p>This is <strong>bold</strong> text</p>"
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         rich_text = blocks[0]["paragraph"]["rich_text"]
         assert rich_text[1]["annotations"]["bold"] is True
 
     def test_paragraph_with_italic(self) -> None:
-        blocks = convert_page("<p>This is <em>italic</em> text</p>", _default_ruleset())
+        blocks = convert_page("<p>This is <em>italic</em> text</p>", _default_ruleset()).blocks
         rich_text = blocks[0]["paragraph"]["rich_text"]
         assert rich_text[1]["annotations"]["italic"] is True
 
@@ -175,26 +176,26 @@ class TestParagraphs:
         blocks = convert_page(
             '<p>See <a href="https://example.com">here</a></p>',
             _default_ruleset(),
-        )
+        ).blocks
         rich_text = blocks[0]["paragraph"]["rich_text"]
         assert rich_text[1]["text"]["link"] == {"url": "https://example.com"}
 
 
 class TestLists:
     def test_unordered_list(self) -> None:
-        blocks = convert_page("<ul><li>one</li><li>two</li></ul>", _default_ruleset())
+        blocks = convert_page("<ul><li>one</li><li>two</li></ul>", _default_ruleset()).blocks
         assert len(blocks) == 2
         assert blocks[0]["type"] == "bulleted_list_item"
         assert blocks[0]["bulleted_list_item"]["rich_text"][0]["text"]["content"] == "one"
 
     def test_ordered_list(self) -> None:
-        blocks = convert_page("<ol><li>first</li><li>second</li></ol>", _default_ruleset())
+        blocks = convert_page("<ol><li>first</li><li>second</li></ol>", _default_ruleset()).blocks
         assert len(blocks) == 2
         assert blocks[0]["type"] == "numbered_list_item"
 
     def test_nested_list(self) -> None:
         xhtml = "<ul><li>parent<ul><li>child</li></ul></li></ul>"
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "bulleted_list_item"
         children = blocks[0].get("bulleted_list_item", {}).get("children", [])
         assert len(children) == 1
@@ -211,7 +212,7 @@ class TestMacroToc:
             '<ac:parameter ac:name="maxLevel">3</ac:parameter>'
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks == [
             {
                 "type": "table_of_contents",
@@ -228,7 +229,7 @@ class TestMacroToc:
             "</ac:structured-macro>"
             "</p>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "table_of_contents"
 
@@ -241,7 +242,7 @@ class TestMacroJira:
             '<ac:parameter ac:name="key">KAFKA-4617</ac:parameter>'
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         rt = blocks[0]["paragraph"]["rich_text"]
         assert rt[0]["text"]["content"] == "KAFKA-4617"
         assert "jira/browse/KAFKA-4617" in rt[0]["text"]["link"]["url"]
@@ -254,7 +255,7 @@ class TestMacroInfo:
             "<ac:rich-text-body><p>Important note</p></ac:rich-text-body>"
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "callout"
         callout = blocks[0]["callout"]
         assert callout["icon"] == {"type": "emoji", "emoji": "\u2139\ufe0f"}
@@ -275,7 +276,7 @@ class TestMacroInfo:
             "<ac:rich-text-body><p>Text</p></ac:rich-text-body>"
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["callout"]["icon"]["emoji"] == emoji
         assert blocks[0]["callout"]["color"] == color
 
@@ -289,7 +290,7 @@ class TestMacroCode:
             "<ac:plain-text-body><![CDATA[print('hello')]]></ac:plain-text-body>"
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "code"
         assert blocks[0]["code"]["language"] == "python"
@@ -302,7 +303,7 @@ class TestMacroCode:
             "<ac:plain-text-body><![CDATA[some code]]></ac:plain-text-body>"
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "code"
         assert blocks[0]["code"]["language"] == "plain text"
 
@@ -313,7 +314,7 @@ class TestMacroCode:
             "<ac:plain-text-body><![CDATA[raw text]]></ac:plain-text-body>"
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "code"
         assert blocks[0]["code"]["language"] == "plain text"
         assert blocks[0]["code"]["rich_text"][0]["text"]["content"] == "raw text"
@@ -329,7 +330,7 @@ class TestNestedMacros:
     def test_info_with_inline_code_from_sample(self) -> None:
         """Real sample: info macro with <code> inside (from samples/27835336.xhtml)."""
         xhtml = self._load_fixture("info-with-code-from-sample.xhtml")
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "callout"
         callout = blocks[0]["callout"]
@@ -341,7 +342,7 @@ class TestNestedMacros:
     def test_expand_with_nested_code(self) -> None:
         """Expand containing a code macro → toggle with code block child."""
         xhtml = self._load_fixture("expand-with-code.xhtml")
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "toggle"
         toggle = blocks[0]["toggle"]
@@ -355,7 +356,7 @@ class TestNestedMacros:
     def test_three_level_expand_info_code(self) -> None:
         """Expand > info > code → toggle > callout > code (3-level nesting)."""
         xhtml = self._load_fixture("expand-with-info-and-code.xhtml")
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "toggle"
         toggle = blocks[0]["toggle"]
@@ -375,7 +376,7 @@ class TestNestedMacros:
     def test_warning_with_nested_info(self) -> None:
         """Warning panel containing info panel → callout with callout child."""
         xhtml = self._load_fixture("warning-with-info.xhtml")
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "callout"
         outer = blocks[0]["callout"]
@@ -393,7 +394,7 @@ class TestNestedMacros:
     def test_note_with_jira_and_code(self) -> None:
         """Note panel with JIRA macro + code block — mixed nesting from real patterns."""
         xhtml = self._load_fixture("panel-with-jira-and-code.xhtml")
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "callout"
         callout = blocks[0]["callout"]
@@ -415,7 +416,7 @@ class TestAcLink:
             '<ac:link><ri:page ri:content-title="Setup Guide" /></ac:link>'
             " for details</p>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         rt = blocks[0]["paragraph"]["rich_text"]
         link_seg = next(s for s in rt if s["text"].get("link"))
         assert link_seg["text"]["content"] == "Setup Guide"
@@ -428,7 +429,7 @@ class TestAcLink:
             "</ac:plain-text-link-body></ac:link>"
             "</p>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         rt = blocks[0]["paragraph"]["rich_text"]
         link_seg = next(s for s in rt if s["text"].get("link"))
         assert link_seg["text"]["content"] == "Kafka compression"
@@ -437,7 +438,7 @@ class TestAcLink:
 class TestAcImage:
     def test_image(self) -> None:
         xhtml = '<ac:image ac:height="250"><ri:attachment ri:filename="pic.jpg" /></ac:image>'
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "image"
         assert blocks[0]["image"]["type"] == "external"
         assert "pic.jpg" in blocks[0]["image"]["external"]["url"]
@@ -449,7 +450,7 @@ class TestAcImage:
 class TestPreformatted:
     def test_pre_block(self) -> None:
         xhtml = "<pre>line1<br />line2</pre>"
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "code"
         content = blocks[0]["code"]["rich_text"][0]["text"]["content"]
         assert content == "line1\nline2"
@@ -459,12 +460,12 @@ class TestPreformatted:
 class TestStyledSpan:
     def test_bold_large_span_as_heading(self) -> None:
         xhtml = '<span style="font-size: 16.0px;font-weight: bold;">Section Title</span>'
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "heading_2"
 
     def test_non_bold_span_as_paragraph(self) -> None:
         xhtml = '<span style="font-size: 16.0px;">Not a heading</span>'
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert blocks[0]["type"] == "paragraph"
 
 
@@ -473,11 +474,11 @@ class TestStyledSpan:
 
 class TestEdgeCases:
     def test_empty_input(self) -> None:
-        blocks = convert_page("", _default_ruleset())
+        blocks = convert_page("", _default_ruleset()).blocks
         assert blocks == []
 
     def test_plain_text_only(self) -> None:
-        blocks = convert_page("just text", _default_ruleset())
+        blocks = convert_page("just text", _default_ruleset()).blocks
         assert blocks[0]["type"] == "paragraph"
         assert blocks[0]["paragraph"]["rich_text"][0]["text"]["content"] == "just text"
 
@@ -487,7 +488,7 @@ class TestEdgeCases:
             '<ac:parameter ac:name="x">val</ac:parameter>'
             "</ac:structured-macro>"
         )
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 1
         assert blocks[0]["type"] == "paragraph"
 
@@ -498,7 +499,7 @@ class TestEdgeCases:
             if r.rule_id == "rule:macro:toc":
                 r.enabled = False
         xhtml = '<ac:structured-macro ac:name="toc" ac:schema-version="1" />'
-        blocks = convert_page(xhtml, ruleset)
+        blocks = convert_page(xhtml, ruleset).blocks
         assert blocks[0]["type"] == "paragraph"
 
 
@@ -516,14 +517,14 @@ class TestLargePageConversion:
     def test_large_page_produces_expected_block_count(self) -> None:
         """200+ <p> tags should produce 200+ blocks."""
         xhtml = self._make_large_xhtml(200)
-        blocks = convert_page(xhtml, _default_ruleset())
+        blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 200
 
     def test_large_page_emits_warning_log(self, caplog: pytest.LogCaptureFixture) -> None:
         """Converting XHTML producing >100 blocks emits a warning with block count and size."""
         xhtml = self._make_large_xhtml(150)
         with caplog.at_level(logging.WARNING, logger="confluence_to_notion.converter.converter"):
-            blocks = convert_page(xhtml, _default_ruleset())
+            blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 150
         warning_records = [
             r for r in caplog.records
@@ -537,7 +538,7 @@ class TestLargePageConversion:
         """XHTML under the threshold does NOT emit a warning."""
         xhtml = self._make_large_xhtml(50)
         with caplog.at_level(logging.WARNING, logger="confluence_to_notion.converter.converter"):
-            blocks = convert_page(xhtml, _default_ruleset())
+            blocks = convert_page(xhtml, _default_ruleset()).blocks
         assert len(blocks) == 50
         warning_records = [
             r for r in caplog.records
@@ -545,3 +546,77 @@ class TestLargePageConversion:
             and r.levelno == logging.WARNING
         ]
         assert len(warning_records) == 0
+
+
+# --- Unresolved item collection ---
+
+
+class TestUnresolvedCollection:
+    """convert_page collects UnresolvedItem for elements it can't handle deterministically."""
+
+    def test_unknown_macro_collected(self) -> None:
+        """Unknown macro produces a placeholder block AND an unresolved item."""
+        xhtml = (
+            '<ac:structured-macro ac:name="custom-board">'
+            "<ac:rich-text-body><p>Board content</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        # Still produces placeholder block
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "paragraph"
+        # Collects unresolved item
+        assert len(result.unresolved) == 1
+        item = result.unresolved[0]
+        assert item.kind == "macro"
+        assert item.identifier == "custom-board"
+        assert item.source_page_id == "pg-1"
+
+    def test_known_macro_no_unresolved(self) -> None:
+        """Known macros (toc, info, etc.) produce NO unresolved items."""
+        xhtml = (
+            '<ac:structured-macro ac:name="toc" ac:schema-version="1">'
+            '<ac:parameter ac:name="maxLevel">3</ac:parameter>'
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-2")
+        assert len(result.blocks) == 1
+        assert result.blocks[0]["type"] == "table_of_contents"
+        assert result.unresolved == []
+
+    def test_ac_link_collected(self) -> None:
+        """Internal page links are collected as unresolved page_link items."""
+        xhtml = (
+            "<p>See "
+            '<ac:link><ri:page ri:content-title="Setup Guide" /></ac:link>'
+            " for details</p>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-3")
+        # Still produces block with placeholder link
+        assert len(result.blocks) == 1
+        # Collects page link unresolved
+        page_links = [u for u in result.unresolved if u.kind == "page_link"]
+        assert len(page_links) == 1
+        assert page_links[0].identifier == "Setup Guide"
+        assert page_links[0].source_page_id == "pg-3"
+
+    def test_mixed_known_unknown(self) -> None:
+        """Page with both known and unknown elements only collects unknowns."""
+        xhtml = (
+            "<h1>Title</h1>"
+            '<ac:structured-macro ac:name="toc" />'
+            '<ac:structured-macro ac:name="fancy-widget">'
+            "<ac:rich-text-body><p>Widget</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-4")
+        assert len(result.blocks) == 3  # heading + toc + placeholder
+        assert len(result.unresolved) == 1
+        assert result.unresolved[0].identifier == "fancy-widget"
+
+    def test_no_page_id_still_works(self) -> None:
+        """Without page_id, unresolved items have empty source_page_id."""
+        xhtml = '<ac:structured-macro ac:name="mystery" />'
+        result = convert_page(xhtml, _default_ruleset())
+        assert len(result.unresolved) == 1
+        assert result.unresolved[0].source_page_id == ""

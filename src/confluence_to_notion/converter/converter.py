@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from typing import Any
 
 from confluence_to_notion.agents.schemas import FinalRuleset
+from confluence_to_notion.converter.schemas import ConversionResult, UnresolvedItem
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +50,43 @@ _HEADING_MAP: dict[str, str] = {
 }
 
 
-def convert_page(xhtml: str, ruleset: FinalRuleset) -> list[dict[str, Any]]:
-    """Convert a Confluence XHTML page to a list of Notion blocks."""
+@dataclass
+class _ConversionContext:
+    """Internal state threaded through all conversion functions."""
+
+    enabled_ids: set[str]
+    page_id: str
+    unresolved: list[UnresolvedItem] = field(default_factory=list)
+
+
+def convert_page(
+    xhtml: str,
+    ruleset: FinalRuleset,
+    *,
+    page_id: str = "",
+) -> ConversionResult:
+    """Convert a Confluence XHTML page to a list of Notion blocks.
+
+    Args:
+        xhtml: Confluence XHTML storage body.
+        ruleset: Rules controlling which macros/elements to convert.
+        page_id: Confluence page ID (used to tag unresolved items).
+
+    Returns:
+        ConversionResult with blocks and any unresolved items.
+    """
     xhtml = xhtml.strip()
     if not xhtml:
-        return []
+        return ConversionResult()
 
-    enabled_ids = {r.rule_id for r in ruleset.enabled_rules}
+    ctx = _ConversionContext(
+        enabled_ids={r.rule_id for r in ruleset.enabled_rules},
+        page_id=page_id,
+    )
     xml_str = _XHTML_WRAPPER.format(xhtml)
     root = ET.fromstring(xml_str)
 
-    blocks = _convert_children(root, enabled_ids, block_type=None)
+    blocks = _convert_children(root, ctx, block_type=None)
 
     input_size = len(xhtml.encode())
     if len(blocks) > LARGE_PAGE_BLOCK_THRESHOLD or input_size > LARGE_PAGE_SIZE_THRESHOLD:
@@ -68,12 +96,12 @@ def convert_page(xhtml: str, ruleset: FinalRuleset) -> list[dict[str, Any]]:
             input_size / 1024,
         )
 
-    return blocks
+    return ConversionResult(blocks=blocks, unresolved=ctx.unresolved)
 
 
 def _convert_children(
     parent: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
     block_type: str | None,
 ) -> list[dict[str, Any]]:
     """Convert child elements of a parent node to Notion blocks."""
@@ -84,7 +112,7 @@ def _convert_children(
         blocks.append(_paragraph([_text_seg(parent.text.strip())]))
 
     for child in parent:
-        child_blocks = _convert_element(child, enabled_ids)
+        child_blocks = _convert_element(child, ctx)
         blocks.extend(child_blocks)
 
         # Handle tail text after elements
@@ -96,14 +124,14 @@ def _convert_children(
 
 def _convert_element(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert a single element to Notion block(s)."""
     tag = _local_tag(elem)
 
     # --- Headings ---
     if tag in _HEADING_MAP:
-        rt = _extract_rich_text(elem, enabled_ids)
+        rt = _extract_rich_text(elem, ctx)
         if not rt:
             return []
         heading_type = _HEADING_MAP[tag]
@@ -112,17 +140,17 @@ def _convert_element(
     # --- Paragraphs ---
     if tag == "p":
         # Promote block-level macros wrapped in <p> (common in Confluence XHTML)
-        promoted = _try_promote_block_macro(elem, enabled_ids)
+        promoted = _try_promote_block_macro(elem, ctx)
         if promoted is not None:
             return promoted
-        rt = _extract_rich_text(elem, enabled_ids)
+        rt = _extract_rich_text(elem, ctx)
         if not rt:
             return []
         return [_paragraph(rt)]
 
     # --- Lists ---
     if tag in ("ul", "ol"):
-        return _convert_list(elem, tag, enabled_ids)
+        return _convert_list(elem, tag, ctx)
 
     # --- Preformatted ---
     if tag == "pre":
@@ -130,18 +158,18 @@ def _convert_element(
 
     # --- Confluence structured macro ---
     if tag == "structured-macro":
-        return _convert_macro(elem, enabled_ids)
+        return _convert_macro(elem, ctx)
 
     # --- Confluence image ---
     if tag == "image":
-        return _convert_ac_image(elem, enabled_ids)
+        return _convert_ac_image(elem, ctx)
 
     # --- Styled span (heading substitute) ---
     if tag == "span":
         return _convert_span(elem)
 
     # --- Fallback: recurse into children ---
-    return _convert_children(elem, enabled_ids, block_type=None)
+    return _convert_children(elem, ctx, block_type=None)
 
 
 # --- Rich text extraction ---
@@ -149,7 +177,7 @@ def _convert_element(
 
 def _extract_rich_text(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Extract Notion rich_text segments from an inline element."""
     segments: list[dict[str, Any]] = []
@@ -182,7 +210,7 @@ def _extract_rich_text(
 
         elif tag == "link":
             # ac:link — Confluence internal page link
-            segments.extend(_extract_ac_link_rich_text(child))
+            segments.extend(_extract_ac_link_rich_text(child, ctx))
 
         elif tag == "br":
             pass  # skip line breaks in inline context
@@ -195,7 +223,7 @@ def _extract_rich_text(
 
         elif tag == "structured-macro":
             # Inline macro (e.g., JIRA reference within a paragraph)
-            inline_segs = _extract_inline_macro(child, enabled_ids)
+            inline_segs = _extract_inline_macro(child, ctx)
             segments.extend(inline_segs)
 
         elif tag == "image":
@@ -213,7 +241,10 @@ def _extract_rich_text(
     return segments
 
 
-def _extract_ac_link_rich_text(elem: ET.Element) -> list[dict[str, Any]]:
+def _extract_ac_link_rich_text(
+    elem: ET.Element,
+    ctx: _ConversionContext,
+) -> list[dict[str, Any]]:
     """Extract rich_text from an ac:link element."""
     page_title = ""
     display_text = ""
@@ -229,17 +260,27 @@ def _extract_ac_link_rich_text(elem: ET.Element) -> list[dict[str, Any]]:
 
     text = display_text or page_title or "link"
     url = f"https://notion.so/placeholder/{page_title}" if page_title else "#"
+
+    if page_title:
+        ctx.unresolved.append(
+            UnresolvedItem(
+                kind="page_link",
+                identifier=page_title,
+                source_page_id=ctx.page_id,
+            )
+        )
+
     return [_text_seg(text, link=url)]
 
 
 def _extract_inline_macro(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Extract rich_text segments from an inline macro (e.g., JIRA)."""
     macro_name = _get_macro_name(elem)
 
-    if macro_name == "jira" and "rule:macro:jira" in enabled_ids:
+    if macro_name == "jira" and "rule:macro:jira" in ctx.enabled_ids:
         return _jira_rich_text(elem)
 
     # Unknown inline macro: extract any text
@@ -255,7 +296,7 @@ _BLOCK_MACROS = {"toc", "info", "note", "warning", "tip", "code", "noformat", "e
 
 def _try_promote_block_macro(
     p_elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]] | None:
     """If a <p> contains only a single block-level macro, promote it."""
     has_text = bool(p_elem.text and p_elem.text.strip())
@@ -274,42 +315,50 @@ def _try_promote_block_macro(
 
     macro_name = _get_macro_name(child)
     if macro_name in _BLOCK_MACROS:
-        return _convert_macro(child, enabled_ids)
+        return _convert_macro(child, ctx)
 
     return None
 
 
 def _convert_macro(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert an ac:structured-macro to Notion block(s)."""
     macro_name = _get_macro_name(elem)
 
     # TOC
-    if macro_name == "toc" and "rule:macro:toc" in enabled_ids:
+    if macro_name == "toc" and "rule:macro:toc" in ctx.enabled_ids:
         return [{"type": "table_of_contents", "table_of_contents": {"color": "default"}}]
 
     # JIRA
-    if macro_name == "jira" and "rule:macro:jira" in enabled_ids:
+    if macro_name == "jira" and "rule:macro:jira" in ctx.enabled_ids:
         return [_paragraph(_jira_rich_text(elem))]
 
     # Code / noformat
-    if macro_name in ("code", "noformat") and "rule:macro:code" in enabled_ids:
+    if macro_name in ("code", "noformat") and "rule:macro:code" in ctx.enabled_ids:
         return _convert_code_macro(elem)
 
     # Expand (toggle)
-    if macro_name == "expand" and "rule:macro:expand" in enabled_ids:
-        return _convert_expand_macro(elem, enabled_ids)
+    if macro_name == "expand" and "rule:macro:expand" in ctx.enabled_ids:
+        return _convert_expand_macro(elem, ctx)
 
     # Info/Note/Warning/Tip panels
-    if macro_name in _PANEL_STYLES and f"rule:macro:{macro_name}" in enabled_ids:
-        return _convert_panel_macro(elem, macro_name, enabled_ids)
+    if macro_name in _PANEL_STYLES and f"rule:macro:{macro_name}" in ctx.enabled_ids:
+        return _convert_panel_macro(elem, macro_name, ctx)
     # Also handle panels without explicit rules (built-in behavior for info-family macros)
     if macro_name in _PANEL_STYLES:
-        return _convert_panel_macro(elem, macro_name, enabled_ids)
+        return _convert_panel_macro(elem, macro_name, ctx)
 
     # Fallback: render as paragraph with the macro's text content
+    ctx.unresolved.append(
+        UnresolvedItem(
+            kind="macro",
+            identifier=macro_name,
+            source_page_id=ctx.page_id,
+            context_xhtml=ET.tostring(elem, encoding="unicode"),
+        )
+    )
     text = _get_all_text(elem).strip()
     if text:
         return [_paragraph([_text_seg(f"[{macro_name}] {text}")])]
@@ -319,7 +368,7 @@ def _convert_macro(
 def _convert_panel_macro(
     elem: ET.Element,
     macro_name: str,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert info/note/warning/tip macro to a Notion callout block."""
     emoji, color = _PANEL_STYLES[macro_name]
@@ -333,12 +382,12 @@ def _convert_panel_macro(
                 inner_tag = _local_tag(inner)
                 if inner_tag == "p" and not first_p_done:
                     # First <p> becomes the callout's rich_text
-                    rt = _extract_rich_text(inner, enabled_ids)
+                    rt = _extract_rich_text(inner, ctx)
                     rich_text.extend(rt)
                     first_p_done = True
                 else:
                     # Subsequent elements become nested children
-                    child_blocks = _convert_element(inner, enabled_ids)
+                    child_blocks = _convert_element(inner, ctx)
                     children.extend(child_blocks)
 
     callout: dict[str, Any] = {
@@ -375,7 +424,7 @@ def _convert_code_macro(elem: ET.Element) -> list[dict[str, Any]]:
 
 def _convert_expand_macro(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert expand macro to a Notion toggle block."""
     params = _get_macro_params(elem)
@@ -385,7 +434,7 @@ def _convert_expand_macro(
     for child in elem:
         if _local_tag(child) == "rich-text-body":
             for inner in child:
-                child_blocks = _convert_element(inner, enabled_ids)
+                child_blocks = _convert_element(inner, ctx)
                 children.extend(child_blocks)
 
     toggle: dict[str, Any] = {
@@ -407,10 +456,10 @@ def _jira_rich_text(elem: ET.Element) -> list[dict[str, Any]]:
 
 def _convert_ac_image(
     elem: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert an ac:image element to a Notion image block."""
-    if "rule:element:ac-image" not in enabled_ids:
+    if "rule:element:ac-image" not in ctx.enabled_ids:
         return [_paragraph([_text_seg("[image]")])]
 
     filename = ""
@@ -463,7 +512,7 @@ def _convert_pre(elem: ET.Element) -> list[dict[str, Any]]:
 def _convert_list(
     elem: ET.Element,
     list_tag: str,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Convert a <ul> or <ol> to Notion list items."""
     block_type = "bulleted_list_item" if list_tag == "ul" else "numbered_list_item"
@@ -473,8 +522,8 @@ def _convert_list(
         if _local_tag(child) != "li":
             continue
 
-        rt = _extract_rich_text_from_li(child, enabled_ids)
-        children = _extract_nested_list(child, enabled_ids)
+        rt = _extract_rich_text_from_li(child, ctx)
+        children = _extract_nested_list(child, ctx)
 
         block: dict[str, Any] = {
             "type": block_type,
@@ -489,7 +538,7 @@ def _convert_list(
 
 def _extract_rich_text_from_li(
     li: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Extract rich_text from a <li>, ignoring nested lists."""
     segments: list[dict[str, Any]] = []
@@ -503,7 +552,7 @@ def _extract_rich_text_from_li(
             continue  # nested list handled separately
 
         if tag == "p":
-            rt = _extract_rich_text(child, enabled_ids)
+            rt = _extract_rich_text(child, ctx)
             segments.extend(rt)
         elif tag == "code":
             segments.append(_text_seg(_get_all_text(child), code=True))
@@ -515,9 +564,9 @@ def _extract_rich_text_from_li(
             text = _get_all_text(child) or child.get("href", "")
             segments.append(_text_seg(text, link=child.get("href", "")))
         elif tag == "link":
-            segments.extend(_extract_ac_link_rich_text(child))
+            segments.extend(_extract_ac_link_rich_text(child, ctx))
         elif tag == "structured-macro":
-            segments.extend(_extract_inline_macro(child, enabled_ids))
+            segments.extend(_extract_inline_macro(child, ctx))
         else:
             text = _get_all_text(child)
             if text:
@@ -531,14 +580,14 @@ def _extract_rich_text_from_li(
 
 def _extract_nested_list(
     li: ET.Element,
-    enabled_ids: set[str],
+    ctx: _ConversionContext,
 ) -> list[dict[str, Any]]:
     """Extract nested <ul>/<ol> from a <li> element."""
     children: list[dict[str, Any]] = []
     for child in li:
         tag = _local_tag(child)
         if tag in ("ul", "ol"):
-            children.extend(_convert_list(child, tag, enabled_ids))
+            children.extend(_convert_list(child, tag, ctx))
     return children
 
 
