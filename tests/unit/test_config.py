@@ -80,16 +80,24 @@ def test_settings_notion_secret_prefix_accepted() -> None:
 
 
 def test_require_notion_raises_when_missing() -> None:
-    """Disables .env loading so the test asserts default (unset) token behavior
-    regardless of any local .env on the dev machine."""
+    """Settings.require_notion raises when token is unset.
+
+    Passes `_env_file=None` to disable .env loading so this regression test
+    verifies default (unset) token behavior regardless of any local .env on the
+    dev machine.
+    """
     s = Settings(_env_file=None)
     with pytest.raises(ValueError, match="NOTION_API_TOKEN"):
         s.require_notion()
 
 
 def test_require_notion_raises_when_no_page_id() -> None:
-    """Disables .env loading so the test asserts default (unset) page-id behavior
-    regardless of any local .env on the dev machine."""
+    """Settings.require_notion raises when page-id is unset.
+
+    Passes `_env_file=None` to disable .env loading so this regression test
+    verifies default (unset) page-id behavior regardless of any local .env on
+    the dev machine.
+    """
     s = Settings(_env_file=None, notion_api_token="ntn_xxx")
     with pytest.raises(ValueError, match="NOTION_ROOT_PAGE_ID"):
         s.require_notion()
