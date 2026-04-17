@@ -22,8 +22,12 @@ def test_settings_with_all_fields() -> None:
 
 
 def test_settings_minimal_defaults() -> None:
-    """Settings loads with zero args — uses defaults for everything."""
-    s = Settings()
+    """Settings loads with zero args — uses defaults for everything.
+
+    Passes `_env_file=None` to disable .env loading so this regression test
+    verifies class defaults regardless of any local .env on the dev machine.
+    """
+    s = Settings(_env_file=None)
     assert s.confluence_base_url == "https://cwiki.apache.org/confluence"
     assert s.confluence_email is None
     assert s.notion_api_token is None
@@ -76,13 +80,17 @@ def test_settings_notion_secret_prefix_accepted() -> None:
 
 
 def test_require_notion_raises_when_missing() -> None:
-    s = Settings()
+    """Disables .env loading so the test asserts default (unset) token behavior
+    regardless of any local .env on the dev machine."""
+    s = Settings(_env_file=None)
     with pytest.raises(ValueError, match="NOTION_API_TOKEN"):
         s.require_notion()
 
 
 def test_require_notion_raises_when_no_page_id() -> None:
-    s = Settings(notion_api_token="ntn_xxx")
+    """Disables .env loading so the test asserts default (unset) page-id behavior
+    regardless of any local .env on the dev machine."""
+    s = Settings(_env_file=None, notion_api_token="ntn_xxx")
     with pytest.raises(ValueError, match="NOTION_ROOT_PAGE_ID"):
         s.require_notion()
 
