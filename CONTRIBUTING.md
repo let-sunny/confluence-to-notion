@@ -185,7 +185,7 @@ uv run pytest tests/unit/test_foo.py   # 특정 파일
 - [ ] `uv run pytest` 통과
 - [ ] `uv run ruff check src/ tests/` 통과
 - [ ] `uv run mypy src/` 통과 (strict)
-- [ ] 프롬프트 수정 시 `bash scripts/run-eval.sh` 실행
+- [ ] discover 파이프라인 프롬프트 (`pattern-discovery`, `rule-proposer`) 수정 시 `bash scripts/run-eval.sh` 실행 (develop 파이프라인 프롬프트는 대상 아님)
 - [ ] `Closes #N` 링크 포함
 
 ---
