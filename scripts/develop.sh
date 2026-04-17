@@ -200,6 +200,199 @@ print(sum(1 for i in r.get('issues', []) if i.get('severity') == 'error'))
     fi
 }
 
+# --- Helper: stage intended changes (Step 7) ---
+#
+# Replaces the old static allow-list (`git add src/ tests/ scripts/ .claude/ ...`)
+# which silently dropped doc-only changes (CONTRIBUTING.md, docs/*) the implementer
+# made outside the hardcoded directories.
+#
+# Behavior:
+#   1. Collect ALL working-tree changes (tracked diff vs HEAD + untracked) via
+#      null-delimited git output, so paths with spaces survive.
+#   2. Filter pipeline artifacts (output/, eval_results/, samples/) — these are
+#      committed manually elsewhere or are local-only.
+#   3. Refuse (exit 1) if any sensitive-looking path appears (.env, *.pem, *.key,
+#      credentials*, *secret*, case-insensitive). Matches CLAUDE.md "Never commit
+#      secrets". User must resolve manually rather than auto-stage.
+#      Escape hatch: DEVELOP_ALLOW_SENSITIVE="path/a,path/b" reclassifies the
+#      named paths as stageable (use only after confirming the match is a false
+#      positive — e.g. docs/secrets-rotation.md).
+#   4. Compare the filtered set against plan.json's affected_files + test_files;
+#      log [drift] WARNINGS for unplanned changes and planned-but-unchanged paths.
+#      Drift does NOT fail the step — DoD is "make silent loss visible", not "block".
+#      Baseline includes test_files (not just affected_files) because TDD-emitted
+#      tests are equally "planned" — drift on tests is as informative as on src.
+#   5. If filtered set is empty, exit 1 explicitly (clearer than an opaque
+#      `git commit` "nothing to commit" error).
+stage_intended_changes() {
+    local plan_path="$OUTPUT_DIR/plan.json"
+    local stage_plan_file
+    stage_plan_file=$(mktemp)
+    # Exception-safe cleanup: fires on success, early-return, or set -e abort.
+    trap 'rm -f "$stage_plan_file"' RETURN
+
+    if ! python3 - "$plan_path" "$stage_plan_file" <<'PYEOF'
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+plan_path = Path(sys.argv[1])
+out_path = Path(sys.argv[2])
+
+
+def git_z(args: list[str]) -> list[str]:
+    try:
+        r = subprocess.run(["git", *args], check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        return []
+    return [p.decode("utf-8") for p in r.stdout.split(b"\x00") if p]
+
+
+tracked = git_z(["diff", "HEAD", "--name-only", "-z"])
+untracked = git_z(["ls-files", "--others", "--exclude-standard", "-z"])
+
+seen: set[str] = set()
+unique: list[str] = []
+for p in tracked + untracked:
+    if p not in seen:
+        seen.add(p)
+        unique.append(p)
+
+ARTIFACT_PREFIXES = ("output/", "eval_results/", "samples/")
+SENSITIVE_PATTERNS = [
+    re.compile(r"(?:^|/)\.env$", re.IGNORECASE),
+    re.compile(r"(?:^|/)\.env\.", re.IGNORECASE),
+    re.compile(r"\.pem$", re.IGNORECASE),
+    re.compile(r"\.key$", re.IGNORECASE),
+    re.compile(r"(?:^|/)credentials", re.IGNORECASE),
+    re.compile(r"secret", re.IGNORECASE),
+]
+
+allow_sensitive = {
+    p.strip()
+    for p in os.environ.get("DEVELOP_ALLOW_SENSITIVE", "").split(",")
+    if p.strip()
+}
+
+artifacts: list[str] = []
+sensitive: list[str] = []
+allowed: list[str] = []
+stageable: list[str] = []
+for p in unique:
+    if any(p.startswith(prefix) for prefix in ARTIFACT_PREFIXES):
+        artifacts.append(p)
+        continue
+    if any(pat.search(p) for pat in SENSITIVE_PATTERNS):
+        if p in allow_sensitive:
+            allowed.append(p)
+            stageable.append(p)
+            continue
+        sensitive.append(p)
+        continue
+    stageable.append(p)
+
+planned: list[str] = []
+if plan_path.exists():
+    try:
+        plan = json.loads(plan_path.read_text())
+    except json.JSONDecodeError:
+        plan = {}
+    for t in plan.get("tasks", []) or []:
+        for f in (t.get("affected_files") or []):
+            if f not in planned:
+                planned.append(f)
+        for f in (t.get("test_files") or []):
+            if f not in planned:
+                planned.append(f)
+
+out_path.write_text(json.dumps({
+    "stageable": stageable,
+    "sensitive": sensitive,
+    "allowed_sensitive": allowed,
+    "artifacts_skipped": artifacts,
+    "planned": planned,
+}, indent=2))
+PYEOF
+    then
+        echo "[ERROR] Step 7: failed to compute stage plan"
+        return 1
+    fi
+
+    # Surface DEVELOP_ALLOW_SENSITIVE reclassifications so the user sees what was waived.
+    local allowed_lines
+    allowed_lines=$(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('allowed_sensitive', []):
+    print(f'    [allow-sensitive] reclassified as stageable: {p}')
+" "$stage_plan_file")
+    if [[ -n "$allowed_lines" ]]; then
+        echo "$allowed_lines"
+    fi
+
+    # Refuse on sensitive paths.
+    local sensitive_lines
+    sensitive_lines=$(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data['sensitive']:
+    print(f'    - {p}')
+" "$stage_plan_file")
+
+    if [[ -n "$sensitive_lines" ]]; then
+        echo "[ERROR] Step 7: sensitive-looking paths in working tree (refusing to stage):"
+        echo "$sensitive_lines"
+        echo "    Matches CLAUDE.md 'Never commit secrets'. Resolve manually:"
+        echo "      1. Confirm the path is not a real secret (false positive on name?)."
+        echo "      2. If safe to commit, stage + commit it yourself before re-running."
+        echo "      3. If a real secret, remove it from the working tree (and rotate)."
+        echo "      4. If many false positives, set DEVELOP_ALLOW_SENSITIVE=path1,path2"
+        echo "         to reclassify named paths as stageable (use sparingly)."
+        return 1
+    fi
+
+    # Drift logging (warnings only).
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+staged = set(data['stageable'])
+planned = set(data['planned'])
+for f in data['stageable']:
+    if f not in planned:
+        print(f'    [drift] unplanned change: {f}')
+for f in data['planned']:
+    if f not in staged:
+        print(f'    [drift] planned-but-unchanged: {f}')
+" "$stage_plan_file"
+
+    # Read the stageable list as a NUL-delimited array (preserves spaces).
+    local -a stageable_files=()
+    while IFS= read -r -d '' f; do
+        stageable_files+=("$f")
+    done < <(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data['stageable']:
+    sys.stdout.buffer.write(p.encode('utf-8') + b'\x00')
+" "$stage_plan_file")
+
+    if [[ "${#stageable_files[@]}" -eq 0 ]]; then
+        echo "[ERROR] Step 7: no files to commit after filtering"
+        return 1
+    fi
+
+    echo "    Staging ${#stageable_files[@]} file(s):"
+    local f
+    for f in "${stageable_files[@]}"; do
+        echo "      + $f"
+    done
+    # `--all` so deletions/renames stage correctly alongside modifications/additions.
+    git add --all -- "${stageable_files[@]}"
+}
+
 # --- Step 1: Plan ---
 run_agent 1 "dev-planner" \
     "$(cat .claude/agents/develop/dev-planner.md)
@@ -388,8 +581,13 @@ if [[ "$FROM_STEP" -le 7 ]]; then
     # Read issue title for PR
     ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q .title 2>/dev/null || echo "Issue #$ISSUE_NUMBER")
 
-    # Stage source files only (exclude pipeline artifacts)
-    git add src/ tests/ scripts/ .claude/ CLAUDE.md pyproject.toml
+    # Stage all working-tree changes minus artifacts/secrets, with drift logging.
+    # Replaces the old hardcoded allow-list which silently dropped doc-only
+    # changes outside the listed dirs (CONTRIBUTING.md, docs/*, etc.).
+    if ! stage_intended_changes; then
+        echo "[ERROR] Step 7: staging aborted"
+        exit 1
+    fi
     git commit -m "feat: ${ISSUE_TITLE}
 
 Automated implementation via scripts/develop.sh for issue #${ISSUE_NUMBER}.
