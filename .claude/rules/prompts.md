@@ -14,7 +14,7 @@ Each agent `.md` file should contain:
 ## Rules
 
 - All prompt text lives in the agent `.md` file — never in Python source code
-- When an agent prompt is changed, run `scripts/run-eval.sh` to verify quality
+- When a discover-pipeline agent prompt (`pattern-discovery`, `rule-proposer`) is changed, run `scripts/run-eval.sh` to verify quality. Develop-pipeline prompts (`dev-planner`, `dev-implementer`, `dev-reviewer`, `dev-fixer`) are not covered by run-eval.
 - Prompts should reference the JSON schema from `src/**/schemas.py` for output format
 - Include examples of expected input/output in the prompt when possible
 - Keep prompts focused: one agent, one responsibility
