@@ -214,18 +214,26 @@ print(sum(1 for i in r.get('issues', []) if i.get('severity') == 'error'))
 #   3. Refuse (exit 1) if any sensitive-looking path appears (.env, *.pem, *.key,
 #      credentials*, *secret*, case-insensitive). Matches CLAUDE.md "Never commit
 #      secrets". User must resolve manually rather than auto-stage.
+#      Escape hatch: DEVELOP_ALLOW_SENSITIVE="path/a,path/b" reclassifies the
+#      named paths as stageable (use only after confirming the match is a false
+#      positive — e.g. docs/secrets-rotation.md).
 #   4. Compare the filtered set against plan.json's affected_files + test_files;
 #      log [drift] WARNINGS for unplanned changes and planned-but-unchanged paths.
 #      Drift does NOT fail the step — DoD is "make silent loss visible", not "block".
+#      Baseline includes test_files (not just affected_files) because TDD-emitted
+#      tests are equally "planned" — drift on tests is as informative as on src.
 #   5. If filtered set is empty, exit 1 explicitly (clearer than an opaque
 #      `git commit` "nothing to commit" error).
 stage_intended_changes() {
     local plan_path="$OUTPUT_DIR/plan.json"
     local stage_plan_file
     stage_plan_file=$(mktemp)
+    # Exception-safe cleanup: fires on success, early-return, or set -e abort.
+    trap 'rm -f "$stage_plan_file"' RETURN
 
     if ! python3 - "$plan_path" "$stage_plan_file" <<'PYEOF'
 import json
+import os
 import re
 import subprocess
 import sys
@@ -263,14 +271,25 @@ SENSITIVE_PATTERNS = [
     re.compile(r"secret", re.IGNORECASE),
 ]
 
+allow_sensitive = {
+    p.strip()
+    for p in os.environ.get("DEVELOP_ALLOW_SENSITIVE", "").split(",")
+    if p.strip()
+}
+
 artifacts: list[str] = []
 sensitive: list[str] = []
+allowed: list[str] = []
 stageable: list[str] = []
 for p in unique:
     if any(p.startswith(prefix) for prefix in ARTIFACT_PREFIXES):
         artifacts.append(p)
         continue
     if any(pat.search(p) for pat in SENSITIVE_PATTERNS):
+        if p in allow_sensitive:
+            allowed.append(p)
+            stageable.append(p)
+            continue
         sensitive.append(p)
         continue
     stageable.append(p)
@@ -292,14 +311,26 @@ if plan_path.exists():
 out_path.write_text(json.dumps({
     "stageable": stageable,
     "sensitive": sensitive,
+    "allowed_sensitive": allowed,
     "artifacts_skipped": artifacts,
     "planned": planned,
 }, indent=2))
 PYEOF
     then
         echo "[ERROR] Step 7: failed to compute stage plan"
-        rm -f "$stage_plan_file"
         return 1
+    fi
+
+    # Surface DEVELOP_ALLOW_SENSITIVE reclassifications so the user sees what was waived.
+    local allowed_lines
+    allowed_lines=$(python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('allowed_sensitive', []):
+    print(f'    [allow-sensitive] reclassified as stageable: {p}')
+" "$stage_plan_file")
+    if [[ -n "$allowed_lines" ]]; then
+        echo "$allowed_lines"
     fi
 
     # Refuse on sensitive paths.
@@ -318,7 +349,8 @@ for p in data['sensitive']:
         echo "      1. Confirm the path is not a real secret (false positive on name?)."
         echo "      2. If safe to commit, stage + commit it yourself before re-running."
         echo "      3. If a real secret, remove it from the working tree (and rotate)."
-        rm -f "$stage_plan_file"
+        echo "      4. If many false positives, set DEVELOP_ALLOW_SENSITIVE=path1,path2"
+        echo "         to reclassify named paths as stageable (use sparingly)."
         return 1
     fi
 
@@ -346,8 +378,6 @@ data = json.load(open(sys.argv[1]))
 for p in data['stageable']:
     sys.stdout.buffer.write(p.encode('utf-8') + b'\x00')
 " "$stage_plan_file")
-
-    rm -f "$stage_plan_file"
 
     if [[ "${#stageable_files[@]}" -eq 0 ]]; then
         echo "[ERROR] Step 7: no files to commit after filtering"
