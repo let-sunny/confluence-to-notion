@@ -16,6 +16,10 @@ from typing import Any
 from confluence_to_notion.agents.schemas import FinalRuleset
 from confluence_to_notion.converter.resolution import ResolutionStore
 from confluence_to_notion.converter.schemas import ConversionResult, UnresolvedItem
+from confluence_to_notion.converter.table_rules import (
+    TableRuleStore,
+    extract_headers_from_xhtml,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,7 @@ class _ConversionContext:
     enabled_ids: set[str]
     page_id: str
     store: ResolutionStore | None = None
+    table_rules: TableRuleStore | None = None
     unresolved: list[UnresolvedItem] = field(default_factory=list)
     table_index: int = 0
 
@@ -69,6 +74,7 @@ def convert_page(
     *,
     page_id: str = "",
     store: ResolutionStore | None = None,
+    table_rules: TableRuleStore | None = None,
 ) -> ConversionResult:
     """Convert a Confluence XHTML page to a list of Notion blocks.
 
@@ -78,6 +84,9 @@ def convert_page(
         page_id: Confluence page ID (used to tag unresolved items).
         store: Resolution store — if provided, resolved entries are used
             instead of placeholders for unknown macros and page links.
+        table_rules: Table rule store — if provided, layout-confirmed tables
+            (is_database=False) are converted without an UnresolvedItem so
+            the resolver/Pass 1.5 doesn't re-prompt on them.
 
     Returns:
         ConversionResult with blocks and any unresolved items.
@@ -90,6 +99,7 @@ def convert_page(
         enabled_ids={r.rule_id for r in ruleset.enabled_rules},
         page_id=page_id,
         store=store,
+        table_rules=table_rules,
     )
     xml_str = _XHTML_WRAPPER.format(xhtml)
     root = ET.fromstring(xml_str)
@@ -647,17 +657,28 @@ def _convert_table(
         while len(row_cells) < max_width:
             row_cells.append([])
 
-    context_xhtml = ET.tostring(elem, encoding="unicode")
+    full_xhtml = ET.tostring(elem, encoding="unicode")
+    context_xhtml = full_xhtml
     if len(context_xhtml) > _TABLE_CONTEXT_MAX_LEN:
         context_xhtml = context_xhtml[:_TABLE_CONTEXT_MAX_LEN]
-    ctx.unresolved.append(
-        UnresolvedItem(
-            kind="table",
-            identifier=identifier,
-            source_page_id=ctx.page_id,
-            context_xhtml=context_xhtml,
+
+    suppress_unresolved = False
+    if ctx.table_rules is not None:
+        headers = extract_headers_from_xhtml(full_xhtml)
+        if headers:
+            rule = ctx.table_rules.lookup(headers)
+            if rule is not None and not rule.is_database:
+                suppress_unresolved = True
+
+    if not suppress_unresolved:
+        ctx.unresolved.append(
+            UnresolvedItem(
+                kind="table",
+                identifier=identifier,
+                source_page_id=ctx.page_id,
+                context_xhtml=context_xhtml,
+            )
         )
-    )
 
     return [
         {

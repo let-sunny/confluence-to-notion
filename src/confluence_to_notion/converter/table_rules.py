@@ -80,6 +80,36 @@ def extract_headers_from_xhtml(context_xhtml: str) -> list[str]:
     return headers
 
 
+def extract_data_rows_from_xhtml(
+    context_xhtml: str, max_rows: int = 5
+) -> list[list[str]]:
+    """Extract up to ``max_rows`` data (non-header) rows from a ``<table>`` snippet.
+
+    Each row is a list of cell texts with inline formatting stripped. Rows whose
+    cells are all ``<th>`` are treated as headers and skipped.
+    """
+    try:
+        root = ET.fromstring(context_xhtml)
+    except ET.ParseError:
+        return []
+
+    rows: list[list[str]] = []
+    for tr in root.iter():
+        if _local_tag(tr) != "tr":
+            continue
+        cells = [c for c in tr if _local_tag(c) in ("td", "th")]
+        if not cells:
+            continue
+        if all(_local_tag(c) == "th" for c in cells):
+            continue
+        rows.append(
+            [" ".join("".join(c.itertext()).split()).strip() for c in cells]
+        )
+        if len(rows) >= max_rows:
+            break
+    return rows
+
+
 def _looks_like_date(values: list[str]) -> bool:
     stripped = [v.strip() for v in values if v and v.strip()]
     if not stripped:

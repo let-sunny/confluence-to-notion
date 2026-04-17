@@ -9,7 +9,8 @@ import pytest
 from confluence_to_notion.agents.schemas import FinalRule, FinalRuleset, ProposedRule
 from confluence_to_notion.converter.converter import convert_page
 from confluence_to_notion.converter.resolution import ResolutionStore
-from confluence_to_notion.converter.schemas import UnresolvedItem
+from confluence_to_notion.converter.schemas import TableRule, UnresolvedItem
+from confluence_to_notion.converter.table_rules import TableRuleStore
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "nested-macros"
 TABLE_FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "tables"
@@ -1055,6 +1056,169 @@ class TestTableConversion:
         result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
         assert result.blocks == [
             {"type": "child_database", "child_database": {"title": "Team"}}
+        ]
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
+
+
+# --- Table conversion with TableRuleStore (Pass 1.5 rule hits) ---
+
+
+class TestTableConversionWithTableRules:
+    """convert_page consults a TableRuleStore by header signature.
+
+    A confirmed-layout rule (is_database=False) suppresses the UnresolvedItem.
+    A confirmed-database rule (is_database=True) still emits the UnresolvedItem
+    so part 3 can pick it up and create the Notion database. In both branches
+    this PR keeps emitting the plain Notion table block — actual database
+    materialization is out-of-scope here.
+    """
+
+    @staticmethod
+    def _table_xhtml(headers: list[str], rows: list[list[str]]) -> str:
+        thead = (
+            "<thead><tr>"
+            + "".join(f"<th>{h}</th>" for h in headers)
+            + "</tr></thead>"
+        )
+        tbody = (
+            "<tbody>"
+            + "".join(
+                "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+                for row in rows
+            )
+            + "</tbody>"
+        )
+        return f"<table>{thead}{tbody}</table>"
+
+    def test_rule_hit_layout_suppresses_unresolved(self, tmp_path: Path) -> None:
+        """Rule hit with is_database=False → plain table block, NO table unresolved."""
+        store = TableRuleStore(tmp_path / "table-rules.json")
+        # Headers in the page differ in case/whitespace from the upsert call to
+        # exercise normalize_header_signature.
+        store.upsert(
+            ["Name", "Role"],
+            TableRule(is_database=False),
+        )
+        store.save()
+
+        xhtml = self._table_xhtml(
+            ["  name ", "ROLE"],
+            [["Alice", "Dev"], ["Bob", "PM"]],
+        )
+        result = convert_page(
+            xhtml,
+            _default_ruleset(),
+            page_id="pg-1",
+            table_rules=store,
+        )
+
+        # Plain Notion table block still emitted
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        # Layout rule = resolution final → no UnresolvedItem(kind='table')
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
+
+    def test_rule_hit_database_still_emits_unresolved(
+        self, tmp_path: Path
+    ) -> None:
+        """Rule hit with is_database=True → plain table block + table unresolved (part 3)."""
+        store = TableRuleStore(tmp_path / "table-rules.json")
+        store.upsert(
+            ["Name", "Role"],
+            TableRule(
+                is_database=True,
+                title_column="name",
+                column_types={"name": "title", "role": "select"},
+            ),
+        )
+        store.save()
+
+        xhtml = self._table_xhtml(
+            ["Name", "Role"],
+            [["Alice", "Dev"], ["Bob", "PM"]],
+        )
+        result = convert_page(
+            xhtml,
+            _default_ruleset(),
+            page_id="pg-1",
+            table_rules=store,
+        )
+
+        # Plain Notion table block still emitted (DB materialization is part 3)
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        # Database candidate → UnresolvedItem so part 3 can pick it up
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert len(tables_unresolved) == 1
+        assert tables_unresolved[0].source_page_id == "pg-1"
+        assert tables_unresolved[0].context_xhtml is not None
+
+    def test_rule_miss_preserves_existing_behavior(self, tmp_path: Path) -> None:
+        """No matching signature → plain table + UnresolvedItem (current behavior)."""
+        store = TableRuleStore(tmp_path / "table-rules.json")
+        # Different headers — no match for the page's table.
+        store.upsert(
+            ["Different", "Headers"],
+            TableRule(is_database=False),
+        )
+        store.save()
+
+        xhtml = self._table_xhtml(
+            ["Name", "Role"],
+            [["Alice", "Dev"]],
+        )
+        result = convert_page(
+            xhtml,
+            _default_ruleset(),
+            page_id="pg-1",
+            table_rules=store,
+        )
+
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert len(tables_unresolved) == 1
+        assert tables_unresolved[0].context_xhtml is not None
+
+    def test_resolution_store_short_circuits_before_table_rules(
+        self, tmp_path: Path
+    ) -> None:
+        """Pre-resolved 'table:{identifier}' in ResolutionStore wins over TableRuleStore."""
+        xhtml = self._table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
+
+        # Discover the stable identifier first.
+        first = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        identifier = next(u.identifier for u in first.unresolved if u.kind == "table")
+
+        res_store = ResolutionStore(tmp_path / "res.json")
+        res_store.add(
+            key=f"table:{identifier}",
+            resolved_by="notion_migration",
+            value={
+                "notion_blocks": [
+                    {"type": "child_database", "child_database": {"title": "T"}}
+                ]
+            },
+        )
+
+        # TableRuleStore has a database-flagged rule too; ResolutionStore must win.
+        tr_store = TableRuleStore(tmp_path / "table-rules.json")
+        tr_store.upsert(
+            ["Name", "Role"],
+            TableRule(is_database=True, title_column="name"),
+        )
+
+        result = convert_page(
+            xhtml,
+            _default_ruleset(),
+            page_id="pg-1",
+            store=res_store,
+            table_rules=tr_store,
+        )
+        assert result.blocks == [
+            {"type": "child_database", "child_database": {"title": "T"}}
         ]
         tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
         assert tables_unresolved == []

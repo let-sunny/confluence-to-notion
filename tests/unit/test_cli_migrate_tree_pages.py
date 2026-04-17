@@ -12,10 +12,16 @@ from notion_client import APIResponseError
 from typer.testing import CliRunner
 
 from confluence_to_notion.agents.schemas import FinalRuleset
-from confluence_to_notion.cli import app
+from confluence_to_notion.cli import _prompt_table_rule, app
 from confluence_to_notion.confluence.schemas import ConfluencePage, PageTreeNode
 from confluence_to_notion.converter.resolution import ResolutionStore
-from confluence_to_notion.converter.schemas import ConversionResult
+from confluence_to_notion.converter.schemas import (
+    ConversionResult,
+    TableRule,
+    TableRuleSet,
+    UnresolvedItem,
+)
+from confluence_to_notion.converter.table_rules import TableRuleStore
 
 runner = CliRunner()
 
@@ -186,8 +192,9 @@ def test_migrate_tree_pages_happy_path(
         assert entry is not None, f"missing entry for {title}"
         assert entry.value == {"notion_page_id": notion_id}
 
-    # convert_page got the populated ResolutionStore so internal links resolve
-    assert mock_convert.call_count == 4
+    # convert_page is called twice per page (Pass 1.5 + Pass 2). Both passes
+    # receive the populated ResolutionStore so internal links resolve.
+    assert mock_convert.call_count == 8
     for call in mock_convert.call_args_list:
         store_arg = call.kwargs.get("store")
         assert store_arg is not None
@@ -286,6 +293,405 @@ def test_migrate_tree_pages_missing_target_and_env_exits(
     assert "NOTION_ROOT_PAGE_ID" in result.output
 
 
+# --- Helpers shared by Pass 1.5 tests ---
+
+
+def _table_xhtml(headers: list[str], rows: list[list[str]]) -> str:
+    """Build a Confluence storage body containing a single table."""
+    thead = (
+        "<thead><tr>"
+        + "".join(f"<th>{h}</th>" for h in headers)
+        + "</tr></thead>"
+    )
+    tbody = (
+        "<tbody>"
+        + "".join(
+            "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+            for row in rows
+        )
+        + "</tbody>"
+    )
+    return f"<table>{thead}{tbody}</table>"
+
+
+def _build_confluence_mock_with_bodies(
+    tree: PageTreeNode,
+    bodies: dict[str, str],
+) -> Any:
+    """Like _build_confluence_mock but returns custom storage bodies per page id."""
+    mock = AsyncMock()
+    mock.__aenter__.return_value = mock
+    mock.__aexit__.return_value = None
+    mock.collect_page_tree = AsyncMock(return_value=tree)
+
+    title_for: dict[str, str] = {}
+
+    def _walk(node: PageTreeNode) -> None:
+        title_for[node.id] = node.title
+        for child in node.children:
+            _walk(child)
+
+    _walk(tree)
+
+    async def _get_page(page_id: str) -> ConfluencePage:
+        return ConfluencePage(
+            id=page_id,
+            title=title_for.get(page_id, page_id),
+            space_key="TEST",
+            storage_body=bodies.get(page_id, "<p/>"),
+            version=1,
+            created_at=datetime(2026, 1, 1, 0, 0, 0),
+        )
+
+    mock.get_page = AsyncMock(side_effect=_get_page)
+    return mock
+
+
+def _make_convert_side_effect(
+    unresolved_per_xhtml: dict[str, list[UnresolvedItem]],
+) -> Any:
+    """convert_page mock: maps storage_body → ConversionResult.unresolved list."""
+
+    def _side(
+        xhtml: str,
+        ruleset: Any,
+        *,
+        page_id: str = "",
+        store: Any = None,
+        table_rules: Any = None,
+    ) -> ConversionResult:
+        return ConversionResult(
+            blocks=[{"object": "block", "type": "paragraph"}],
+            unresolved=list(unresolved_per_xhtml.get(xhtml, [])),
+        )
+
+    return _side
+
+
+# --- Pass 1.5: dedup + persist + non-TTY fallback ---
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_dedups_signature_across_pages_and_persists(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two pages with the same header signature → ONE prompt; rule persisted to disk."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(
+        id="root",
+        title="Root Page",
+        children=[
+            PageTreeNode(id="c1", title="Child 1"),
+            PageTreeNode(id="c2", title="Child 2"),
+        ],
+    )
+    body_a = _table_xhtml(["Name", "Role"], [["Alice", "Dev"], ["Bob", "PM"]])
+    body_b = _table_xhtml(["NAME", " role "], [["Carol", "QA"], ["Dan", "PM"]])
+    bodies = {"root": "<p/>", "c1": body_a, "c2": body_b}
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, bodies)
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    table_unresolved_a = UnresolvedItem(
+        kind="table", identifier="t-c1-0", source_page_id="c1", context_xhtml=body_a
+    )
+    table_unresolved_b = UnresolvedItem(
+        kind="table", identifier="t-c2-0", source_page_id="c2", context_xhtml=body_b
+    )
+    mock_convert.side_effect = _make_convert_side_effect(
+        {body_a: [table_unresolved_a], body_b: [table_unresolved_b]}
+    )
+
+    answered = TableRule(
+        is_database=True,
+        title_column="name",
+        column_types={"name": "title", "role": "select"},
+    )
+    mock_prompt.return_value = answered
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    table_rules_path = tmp_path / "table-rules.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(table_rules_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Same normalized signature (name|role) across pages → exactly ONE prompt.
+    assert mock_prompt.call_count == 1
+
+    # Rule persisted to the configured table-rules file
+    assert table_rules_path.exists()
+    persisted = TableRuleSet.model_validate_json(
+        table_rules_path.read_text(encoding="utf-8")
+    )
+    assert "name|role" in persisted.rules
+    assert persisted.rules["name|role"].is_database is True
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_skips_signatures_already_in_store(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pre-existing entry → no prompt for that signature; only un-matched is prompted."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(
+        id="root",
+        title="Root Page",
+        children=[
+            PageTreeNode(id="c1", title="Child 1"),
+            PageTreeNode(id="c2", title="Child 2"),
+        ],
+    )
+    body_known = _table_xhtml(["Name", "Role"], [["A", "Dev"]])
+    body_new = _table_xhtml(["Task", "Status"], [["X", "open"]])
+    bodies = {"root": "<p/>", "c1": body_known, "c2": body_new}
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, bodies)
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    # convert_page surfaces both as unresolved; the cli must skip the one already in store.
+    mock_convert.side_effect = _make_convert_side_effect(
+        {
+            body_known: [
+                UnresolvedItem(
+                    kind="table",
+                    identifier="t-c1-0",
+                    source_page_id="c1",
+                    context_xhtml=body_known,
+                )
+            ],
+            body_new: [
+                UnresolvedItem(
+                    kind="table",
+                    identifier="t-c2-0",
+                    source_page_id="c2",
+                    context_xhtml=body_new,
+                )
+            ],
+        }
+    )
+    mock_prompt.return_value = TableRule(is_database=False)
+
+    table_rules_path = tmp_path / "table-rules.json"
+    pre_existing = TableRuleStore(table_rules_path)
+    pre_existing.upsert(["Name", "Role"], TableRule(is_database=False))
+    pre_existing.save()
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(table_rules_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Only the un-matched signature triggers a prompt.
+    assert mock_prompt.call_count == 1
+    headers_arg = mock_prompt.call_args.kwargs["headers"]
+    assert headers_arg == ["Task", "Status"]
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_prompt_receives_column_type_draft(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The prompt's kwargs include a column_type_draft from infer_column_types."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    # Date column should be inferred as 'date'.
+    body = _table_xhtml(
+        ["Name", "Due"],
+        [
+            ["A", "2026-01-15"],
+            ["B", "2026-02-01"],
+            ["C", "2026-03-20"],
+        ],
+    )
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(
+        tree, {"root": body}
+    )
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    mock_convert.side_effect = _make_convert_side_effect(
+        {
+            body: [
+                UnresolvedItem(
+                    kind="table",
+                    identifier="t-root-0",
+                    source_page_id="root",
+                    context_xhtml=body,
+                )
+            ]
+        }
+    )
+    mock_prompt.return_value = TableRule(
+        is_database=True,
+        title_column="name",
+        column_types={"name": "title", "due": "date"},
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(tmp_path / "table-rules.json"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert mock_prompt.call_count == 1
+
+    # Inspect the kwargs passed to _prompt_table_rule.
+    kwargs = mock_prompt.call_args.kwargs
+    draft = kwargs.get("column_type_draft")
+    assert draft is not None, f"missing column_type_draft in kwargs: {kwargs}"
+    assert draft.get("Due") == "date"
+    # Sample rows surfaced too so the user sees what they're labelling.
+    sample_rows = kwargs.get("sample_rows")
+    assert sample_rows is not None and len(sample_rows) >= 1
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_non_tty_does_not_prompt_or_block(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-TTY → no prompt, no block, page still migrates, exit 0."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: False)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(
+        tree, {"root": body}
+    )
+    notion_mock = _build_notion_mock()
+    mock_notion_cls.return_value = notion_mock
+
+    mock_convert.side_effect = _make_convert_side_effect(
+        {
+            body: [
+                UnresolvedItem(
+                    kind="table",
+                    identifier="t-root-0",
+                    source_page_id="root",
+                    context_xhtml=body,
+                )
+            ]
+        }
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    table_rules_path = tmp_path / "table-rules.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(table_rules_path),
+        ],
+    )
+
+    # Migration finished, no prompts, no Notion failures
+    assert result.exit_code == 0, result.output
+    assert mock_prompt.call_count == 0
+    assert notion_mock.append_blocks.await_count == 1
+    # Console mentions the unresolved signature so the operator can act later.
+    assert "name|role" in result.output.lower()
+
+
 @patch("confluence_to_notion.cli.convert_page")
 @patch("confluence_to_notion.cli.NotionClientWrapper")
 @patch("confluence_to_notion.cli.ConfluenceClient")
@@ -339,3 +745,45 @@ def test_migrate_tree_pages_notion_api_error_on_body_upload(
 
     assert result.exit_code != 0
     assert "Notion" in result.output or "API" in result.output
+
+
+# --- _prompt_table_rule direct regression: store must survive round-trip ---
+
+
+def test_prompt_table_rule_persists_roundtrip_with_title_cased_headers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Title-cased headers + default title column must produce a rule that survives
+    save→load. Without normalization, TableRuleSet validation rejects the file
+    (title_column 'Name' not in signature columns ['name', 'role']) and
+    TableRuleStore._load silently wipes every previously persisted rule.
+    """
+    monkeypatch.setattr("typer.confirm", lambda *a, **kw: True)
+    monkeypatch.setattr("typer.prompt", lambda *a, **kw: kw.get("default", a[-1]))
+
+    headers = ["Name", "Role"]
+    sample_rows = [["Alice", "Dev"], ["Bob", "PM"]]
+    draft: dict[str, Any] = {"Name": "title", "Role": "select"}
+
+    rule = _prompt_table_rule(
+        headers=headers,
+        sample_rows=sample_rows,
+        column_type_draft=draft,
+    )
+
+    assert rule.is_database is True
+    assert rule.title_column == "name"
+    assert rule.column_types == {"name": "title", "role": "select"}
+
+    # Round-trip through TableRuleStore: save then reload from disk.
+    store_path = tmp_path / "table-rules.json"
+    store = TableRuleStore(store_path)
+    store.upsert(headers, rule)
+    store.save()
+
+    reloaded = TableRuleStore(store_path)
+    assert reloaded.lookup(headers) is not None
+    assert reloaded.lookup(headers) == rule
+    # Signature key is normalized in the store.
+    assert "name|role" in reloaded.data.rules

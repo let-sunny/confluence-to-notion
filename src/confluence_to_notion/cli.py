@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,23 @@ from confluence_to_notion.confluence.client import ConfluenceClient
 from confluence_to_notion.confluence.schemas import PageTreeNode
 from confluence_to_notion.converter.converter import convert_page
 from confluence_to_notion.converter.resolution import ResolutionStore
+from confluence_to_notion.converter.schemas import NotionPropertyType, TableRule
+from confluence_to_notion.converter.table_rules import (
+    TableRuleStore,
+    extract_data_rows_from_xhtml,
+    extract_headers_from_xhtml,
+    infer_column_types,
+    normalize_header_signature,
+)
 from confluence_to_notion.notion.client import NotionClientWrapper
 
 app = typer.Typer(help="confluence-to-notion: auto-discover transformation rules")
 console = Console()
+
+
+def _stdin_is_tty() -> bool:
+    """Indirection for sys.stdin.isatty so tests can patch it through CliRunner."""
+    return sys.stdin.isatty()
 
 
 def _load_settings() -> Settings:
@@ -495,14 +509,19 @@ def migrate_tree_pages(
     rules_file: Path = typer.Option(
         Path("output/rules.json"), "--rules", help="Path to rules.json"
     ),
+    table_rules_file: Path = typer.Option(
+        Path("output/rules/table-rules.json"),
+        "--table-rules",
+        help="Path to table-rules.json (header-signature → Notion DB rule)",
+    ),
 ) -> None:
-    """Run the full 2-pass migration: create the Notion tree, then upload bodies.
+    """Run the multi-pass migration: tree → table-rule discovery → body upload.
 
     Pass 1 collects the Confluence tree, creates empty Notion pages, and persists
-    a ``page_link:{title}`` resolution store so that internal links can resolve
-    to Notion page IDs. Pass 2 fetches each Confluence page's XHTML, converts it
-    against the resolution store (so internal links emit mention blocks), and
-    appends the resulting blocks to the pre-created Notion page.
+    a ``page_link:{title}`` resolution store. Pass 1.5 fetches each page's XHTML,
+    discovers tables whose header signatures lack a rule, and (when run on a TTY)
+    prompts the operator to classify them as layout tables or Notion databases.
+    Pass 2 converts each page using both stores and appends the blocks to Notion.
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
 
@@ -532,11 +551,13 @@ def migrate_tree_pages(
 
     confluence = ConfluenceClient(settings)
     notion = NotionClientWrapper(settings)
+    table_rule_store = TableRuleStore(table_rules_file)
 
     async def _run() -> tuple[int, int]:
         async with confluence:
             tree = await confluence.collect_page_tree(root_id)
 
+            # --- Pass 1: create empty Notion pages mirroring the Confluence tree ---
             id_to_notion: dict[str, str] = {}
             id_to_title: dict[str, str] = {}
             store = ResolutionStore(resolution_out)
@@ -556,17 +577,63 @@ def migrate_tree_pages(
             await _create_subtree(tree, parent_id)
             store.save()
 
+            # --- Pass 1.5: discover unresolved table signatures, prompt for rules ---
+            xhtml_cache: dict[str, str] = {}
+            for confluence_id in id_to_notion:
+                page = await confluence.get_page(confluence_id)
+                xhtml_cache[confluence_id] = page.storage_body
+
+            seen_signatures: set[str] = set()
+            interactive = _stdin_is_tty()
+            for confluence_id, xhtml in xhtml_cache.items():
+                pre_result = convert_page(
+                    xhtml,
+                    ruleset,
+                    page_id=confluence_id,
+                    store=store,
+                    table_rules=table_rule_store,
+                )
+                for item in pre_result.unresolved:
+                    if item.kind != "table" or not item.context_xhtml:
+                        continue
+                    headers = extract_headers_from_xhtml(item.context_xhtml)
+                    if not headers:
+                        continue
+                    sig = normalize_header_signature(headers)
+                    if sig in seen_signatures:
+                        continue
+                    seen_signatures.add(sig)
+                    if table_rule_store.lookup(headers) is not None:
+                        continue
+                    if not interactive:
+                        console.print(
+                            f"[yellow]Unresolved table signature (non-TTY, "
+                            f"skipping prompt): {sig}[/yellow]"
+                        )
+                        continue
+                    sample_rows = extract_data_rows_from_xhtml(item.context_xhtml)
+                    draft = infer_column_types(sample_rows, headers)
+                    rule = _prompt_table_rule(
+                        headers=headers,
+                        sample_rows=sample_rows,
+                        column_type_draft=draft,
+                    )
+                    table_rule_store.upsert(headers, rule)
+                    table_rule_store.save()
+
+            # --- Pass 2: convert with both stores and append to Notion ---
             succeeded = 0
             failed = 0
             for confluence_id, notion_page_id in id_to_notion.items():
                 title = id_to_title[confluence_id]
+                xhtml = xhtml_cache[confluence_id]
                 try:
-                    page = await confluence.get_page(confluence_id)
                     result = convert_page(
-                        page.storage_body,
+                        xhtml,
                         ruleset,
                         page_id=confluence_id,
                         store=store,
+                        table_rules=table_rule_store,
                     )
                     await notion.append_blocks(notion_page_id, result.blocks)
                     succeeded += 1
@@ -590,6 +657,46 @@ def migrate_tree_pages(
     )
     if failed > 0:
         raise typer.Exit(code=1)
+
+
+def _prompt_table_rule(
+    *,
+    headers: list[str],
+    sample_rows: list[list[str]],
+    column_type_draft: dict[str, NotionPropertyType],
+) -> TableRule:
+    """Show a table preview and ask the operator to classify it.
+
+    Returns a ``TableRule`` describing whether the table should become a Notion
+    database and, if so, which column is the title and what type each column is.
+    """
+    from rich.table import Table as RichTable
+
+    preview = RichTable(title="Confluence table preview", show_lines=True)
+    for h in headers:
+        preview.add_column(h)
+    for row in sample_rows[:5]:
+        preview.add_row(*row)
+    console.print(preview)
+    console.print(f"[cyan]Inferred column types:[/cyan] {column_type_draft}")
+
+    is_db = typer.confirm("Convert to Notion database?", default=False)
+    if not is_db:
+        return TableRule(is_database=False)
+
+    title_col = typer.prompt("Title column", default=headers[0])
+    # Persisted signatures are lowercased/stripped (normalize_header_signature), so
+    # title_column and column_types keys must match that form or TableRuleSet
+    # validation rejects the store on the next load and wipes every rule.
+    normalized_title = title_col.strip().lower()
+    normalized_types: dict[str, NotionPropertyType] = {
+        k.strip().lower(): v for k, v in column_type_draft.items()
+    }
+    return TableRule(
+        is_database=True,
+        title_column=normalized_title,
+        column_types=normalized_types,
+    )
 
 
 def _extract_title(blocks: list[dict[str, Any]], *, fallback: str) -> str:
