@@ -41,6 +41,34 @@ if [[ "$CURRENT_BRANCH" == "main" ]]; then
     echo "==> Working on branch: $BRANCH_NAME"
 fi
 
+# Preflight: stale remote branch check
+# If origin/feat/issue-${ISSUE_NUMBER} already exists we refuse to continue — a stale
+# remote branch from a prior run silently causes step 7 (git push) to append onto
+# unknown commits. Fail early with actionable guidance (ADR-005: ambiguity → ask human).
+if [[ "$FROM_STEP" -le 1 ]]; then
+    PREFLIGHT_BRANCH="feat/issue-${ISSUE_NUMBER}"
+    if git ls-remote --exit-code --heads origin "$PREFLIGHT_BRANCH" >/dev/null 2>&1; then
+        git fetch origin "$PREFLIGHT_BRANCH" >/dev/null 2>&1 || true
+        remote_sha=$(git rev-parse --short "origin/$PREFLIGHT_BRANCH" 2>/dev/null || echo "unknown")
+        ahead_count=$(git rev-list --count "origin/$PREFLIGHT_BRANCH" "^main" 2>/dev/null || echo "?")
+        if [[ "${DEVELOP_ALLOW_STALE_REMOTE:-0}" == "1" ]]; then
+            echo "==> [WARN] Stale remote branch origin/$PREFLIGHT_BRANCH exists" \
+                 "(HEAD=$remote_sha, $ahead_count commits ahead of main)."
+            echo "    DEVELOP_ALLOW_STALE_REMOTE=1 set — proceeding anyway."
+        else
+            echo "[ERROR] Remote branch origin/$PREFLIGHT_BRANCH already exists" \
+                 "(HEAD=$remote_sha, $ahead_count commits ahead of main)."
+            echo "    A prior run for issue #${ISSUE_NUMBER} left a stale remote branch." \
+                 "Pushing onto it would mix unrelated commits."
+            echo "    Next actions:"
+            echo "      1. Inspect:   git fetch origin && git log --oneline origin/$PREFLIGHT_BRANCH ^main"
+            echo "      2. If safe to discard:  git push origin --delete $PREFLIGHT_BRANCH"
+            echo "      3. Or override (advanced):  DEVELOP_ALLOW_STALE_REMOTE=1 bash scripts/develop.sh $ISSUE_NUMBER"
+            exit 1
+        fi
+    fi
+fi
+
 # --- Helper: run an agent step ---
 run_agent() {
     local step_num="$1"
@@ -52,12 +80,24 @@ run_agent() {
         return
     fi
 
+    local log_file="$OUTPUT_DIR/${step_name}.log"
     echo "==> Step $step_num: $step_name"
+    # Capture to file first, then mirror to stdout. `tee` was observed to
+    # silently drop dev-reviewer output (0-byte log) under --output-format text;
+    # direct redirect + cat is deterministic and survives SIGPIPE on the outer pipe.
+    set +e
     claude -p "$prompt" \
         --allowedTools "Read,Write,Bash,Glob,Grep,Edit" \
-        2>&1 | tee "$OUTPUT_DIR/${step_name}.log"
-
-    echo "    Done: $OUTPUT_DIR/"
+        --output-format text \
+        >"$log_file" 2>&1
+    local exit_code=$?
+    set -e
+    cat "$log_file"
+    if [[ "$exit_code" -ne 0 ]]; then
+        echo "[ERROR] $step_name failed (exit=$exit_code)"
+        return "$exit_code"
+    fi
+    echo "    Done: $log_file"
 }
 
 # --- Helper: run lint + type check + tests ---
@@ -86,51 +126,7 @@ run_checks() {
     return 0
 }
 
-# --- Step 1: Plan ---
-run_agent 1 "dev-planner" \
-    "$(cat .claude/agents/develop/dev-planner.md)
-
-Plan the implementation for GitHub issue #${ISSUE_NUMBER}.
-Write the plan to ${OUTPUT_DIR}/plan.json"
-
-# Validate plan.json
-if [[ "$FROM_STEP" -le 1 ]]; then
-    echo "    Validating plan.json..."
-    python3 -c "
-import json, sys
-plan = json.load(open('${OUTPUT_DIR}/plan.json'))
-assert plan.get('issue_number'), 'missing issue_number'
-assert plan.get('tasks') and len(plan['tasks']) > 0, 'missing tasks'
-for t in plan['tasks']:
-    assert t.get('task_id'), 'task missing task_id'
-    assert t.get('affected_files') and len(t['affected_files']) > 0, f\"task {t.get('task_id')} missing affected_files\"
-print(f\"Plan valid: {len(plan['tasks'])} tasks\")
-" || { echo "[ERROR] plan.json validation failed"; exit 1; }
-fi
-
-# --- Step 2: Implement ---
-run_agent 2 "dev-implementer" \
-    "$(cat .claude/agents/develop/dev-implementer.md)
-
-Execute the development plan in ${OUTPUT_DIR}/plan.json.
-Read the plan, then implement each task in order following TDD.
-After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
-
-# --- Step 3: Test ---
-if [[ "$FROM_STEP" -le 3 ]]; then
-    if ! run_checks 3 "test"; then
-        echo "[WARN] Step 3 checks failed — continuing to review for diagnosis"
-    fi
-fi
-
-# --- Step 4: Review ---
-run_agent 4 "dev-reviewer" \
-    "$(cat .claude/agents/develop/dev-reviewer.md)
-
-Review the code changes against the plan in ${OUTPUT_DIR}/plan.json.
-Run 'git diff HEAD' to see all changes. Write review to ${OUTPUT_DIR}/review.json"
-
-# --- Step 5+6: Fix + Verify loop with circuit breaker ---
+# --- Circuit breaker helpers (used by Fix+Verify loop and re-plan fallback) ---
 #
 # Circuit breaker states (persisted in output/dev/circuit.json):
 #   CLOSED    — normal operation, fix loop runs
@@ -174,6 +170,24 @@ print('    [circuit] state=$state errors=$error_count attempt=$attempt')
 "
 }
 
+circuit_announce() {
+    # Announce current circuit state at a phase entry point.
+    # Usage: circuit_announce "<context>"
+    local context="$1"
+    local state
+    state=$(circuit_read_state)
+    echo "==> circuit: $state ($context)"
+}
+
+circuit_transition() {
+    # Emit a state-transition line in a uniform format.
+    # Usage: circuit_transition <from> <to> "<reason>"
+    local from="$1"
+    local to="$2"
+    local reason="$3"
+    echo "==> circuit transition: $from → $to ($reason)"
+}
+
 count_errors() {
     if [[ -f "$OUTPUT_DIR/review.json" ]]; then
         python3 -c "
@@ -186,12 +200,58 @@ print(sum(1 for i in r.get('issues', []) if i.get('severity') == 'error'))
     fi
 }
 
+# --- Step 1: Plan ---
+run_agent 1 "dev-planner" \
+    "$(cat .claude/agents/develop/dev-planner.md)
+
+Plan the implementation for GitHub issue #${ISSUE_NUMBER}.
+Write the plan to ${OUTPUT_DIR}/plan.json"
+
+# Validate plan.json
+if [[ "$FROM_STEP" -le 1 ]]; then
+    echo "    Validating plan.json..."
+    python3 -c "
+import json, sys
+plan = json.load(open('${OUTPUT_DIR}/plan.json'))
+assert plan.get('issue_number'), 'missing issue_number'
+assert plan.get('tasks') and len(plan['tasks']) > 0, 'missing tasks'
+for t in plan['tasks']:
+    assert t.get('task_id'), 'task missing task_id'
+    assert t.get('affected_files') and len(t['affected_files']) > 0, f\"task {t.get('task_id')} missing affected_files\"
+print(f\"Plan valid: {len(plan['tasks'])} tasks\")
+" || { echo "[ERROR] plan.json validation failed"; exit 1; }
+fi
+
+# --- Step 2: Implement ---
+run_agent 2 "dev-implementer" \
+    "$(cat .claude/agents/develop/dev-implementer.md)
+
+Execute the development plan in ${OUTPUT_DIR}/plan.json.
+Read the plan, then implement each task in order following TDD.
+After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
+
+# --- Step 3: Test ---
+if [[ "$FROM_STEP" -le 3 ]]; then
+    if ! run_checks 3 "test"; then
+        echo "[WARN] Step 3 checks failed — continuing to review for diagnosis"
+    fi
+fi
+
+# --- Step 4: Review ---
+circuit_announce "entering Review"
+run_agent 4 "dev-reviewer" \
+    "$(cat .claude/agents/develop/dev-reviewer.md)
+
+Review the code changes against the plan in ${OUTPUT_DIR}/plan.json.
+Run 'git diff HEAD' to see all changes. Write review to ${OUTPUT_DIR}/review.json"
+
+# --- Step 5+6: Fix + Verify loop with circuit breaker ---
 # Determine initial circuit state
 circuit_state=$(circuit_read_state)
 
 # OPEN from previous run + user re-ran full pipeline → reset to CLOSED, let it try fresh
 if [[ "$circuit_state" == "OPEN" && "$FROM_STEP" -le 1 ]]; then
-    echo "==> Circuit was OPEN, but full pipeline re-run requested — resetting to CLOSED"
+    circuit_transition "OPEN" "CLOSED" "full pipeline re-run requested — reset"
     circuit_state="CLOSED"
     circuit_write "CLOSED" 999 0
 fi
@@ -208,11 +268,18 @@ if [[ "$circuit_state" == "HALF_OPEN" ]]; then
 fi
 
 while [[ "$retry" -lt "$max_attempts" ]]; do
+    circuit_announce "fix+verify iteration $((retry + 1))/$max_attempts"
+
     # Check if review approved
     if [[ -f "$OUTPUT_DIR/review.json" ]]; then
         approved=$(python3 -c "import json; print(json.load(open('$OUTPUT_DIR/review.json'))['approved'])" 2>/dev/null || echo "False")
         if [[ "$approved" == "True" ]]; then
-            echo "==> Review approved — circuit CLOSED"
+            prev_state=$(circuit_read_state)
+            if [[ "$prev_state" == "HALF_OPEN" ]]; then
+                circuit_transition "HALF_OPEN" "CLOSED" "review approved after re-plan probe"
+            else
+                echo "==> Review approved — circuit stays CLOSED"
+            fi
             circuit_write "CLOSED" 0 "$retry"
             break
         fi
@@ -222,7 +289,8 @@ while [[ "$retry" -lt "$max_attempts" ]]; do
     curr_errors=$(count_errors)
     prev_errors=$(circuit_read_prev_errors)
     if [[ "$retry" -gt 0 && "$curr_errors" -ge "$prev_errors" ]]; then
-        echo "[CIRCUIT BREAKER] Errors not decreasing ($prev_errors -> $curr_errors) — circuit OPEN"
+        prev_state=$(circuit_read_state)
+        circuit_transition "$prev_state" "OPEN" "errors not decreasing ($prev_errors -> $curr_errors) — will trigger re-plan"
         circuit_write "OPEN" "$curr_errors" "$retry"
         break
     fi
@@ -240,7 +308,12 @@ Read the review, then apply fixes to resolve each issue."
     if [[ "$FROM_STEP" -le 6 ]]; then
         # Step 6: Verify
         if run_checks 6 "verify"; then
-            echo "==> Verify passed — circuit CLOSED"
+            prev_state=$(circuit_read_state)
+            if [[ "$prev_state" == "HALF_OPEN" ]]; then
+                circuit_transition "HALF_OPEN" "CLOSED" "verify passed after re-plan probe"
+            else
+                echo "==> Verify passed — circuit stays CLOSED"
+            fi
             circuit_write "CLOSED" 0 "$retry"
             break
         else
@@ -265,14 +338,19 @@ circuit_state=$(circuit_read_state)
 
 if [[ "$circuit_state" == "HALF_OPEN" && "$retry" -ge "$max_attempts" ]]; then
     # Half-open probe failed — both original and re-plan approach failed
-    echo "[CIRCUIT BREAKER] Re-plan probe also failed. Manual intervention required."
+    circuit_transition "HALF_OPEN" "OPEN" "re-plan probe also failed — manual intervention required"
     circuit_write "OPEN" "$(count_errors)" "$retry"
     exit 1
 fi
 
 if [[ "$circuit_state" == "OPEN" || "$retry" -ge "$max_attempts" ]]; then
-    # OPEN: fix loop broke out due to no progress → re-plan fallback
-    echo "==> [CIRCUIT BREAKER] Triggering re-plan fallback..."
+    # Re-plan fallback. The condition fires for two distinct prior states:
+    #   - OPEN: errors weren't decreasing (caught mid-loop)
+    #   - CLOSED: max_attempts exhausted with progress but no approval
+    # Use the actual prior state in the transition log so observability matches reality.
+    circuit_announce "entering re-plan fallback"
+    circuit_transition "$circuit_state" "HALF_OPEN" "probing re-plan"
+    circuit_write "HALF_OPEN" "$(count_errors)" 0
 
     run_agent 1 "dev-planner" \
         "$(cat .claude/agents/develop/dev-planner.md)
@@ -292,11 +370,12 @@ Read the plan, then implement each task in order following TDD.
 After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
 
     # Half-open probe: one verify attempt
+    circuit_announce "re-plan probe verify"
     if run_checks 6 "verify-replan"; then
-        echo "==> Re-plan succeeded — circuit CLOSED"
+        circuit_transition "HALF_OPEN" "CLOSED" "re-plan succeeded"
         circuit_write "CLOSED" 0 0
     else
-        echo "[CIRCUIT BREAKER] Re-plan also failed. Manual intervention required."
+        circuit_transition "HALF_OPEN" "OPEN" "re-plan also failed — manual intervention required"
         circuit_write "OPEN" "$(count_errors)" 0
         exit 1
     fi

@@ -40,6 +40,7 @@ You are a development implementer agent. Your job is to execute each task in the
 - Each test should initially fail (Red)
 - Write the minimum code to make the test pass (Green)
 - If a task only has `affected_files` (no `test_files`), it's infrastructure (scripts, config, agent definitions) — implement directly
+- **Stub at user-input / I/O boundaries only** — `Prompt.ask`, raw HTTP responses, file I/O, subprocess 같은 경계에서만 mock/patch 한다. helper 함수(예: 정규화·변환 로직)의 반환값 자체를 stub 하면 helper 내부 회귀가 테스트를 통과해버려 reviewer도 잡기 어렵다 (관측 사례: #65의 `_prompt_table_rule.title_column` 정규화 회귀). helper는 실제로 호출되게 두고, 그 아래 경계를 mock 하라.
 
 ### Code style rules (from CLAUDE.md)
 
