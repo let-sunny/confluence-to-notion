@@ -40,6 +40,18 @@ You are a rule proposer agent. Your job is to read discovered Confluence pattern
 - **Standard HTML**: `<h1-6>` → `heading_1/2/3`, `<ul>/<ol>` → list items, `<pre><code>` → `code` block, `<table>` → `table` block, `<blockquote>` → `quote`
 - For patterns with no Notion equivalent, propose the closest approximation and mark confidence as "low"
 
+### Target macro mapping (required)
+
+These five macros are the primary migration targets. When any of them appears in `output/patterns.json`, you MUST emit a rule following this table exactly. Treat these as canonical — extend, do not override.
+
+| Macro pattern | Notion block | Key mapping details | Confidence |
+|---|---|---|---|
+| `macro:jira` | `paragraph` w/ rich_text link | Link text = `key` parameter (e.g. `PROJ-1234`). URL = `{jira_base_url}/browse/{key}` where `jira_base_url` is derived from the `server`/`serverId` parameters (resolved via environment config). If no base URL is resolvable, fall back to plain text with the key. | medium |
+| `macro:drawio` | `image` (external) | URL = attachment URL derived from `diagramName` (+ optional `revision`), typically `{confluence_base}/download/attachments/{pageId}/{diagramName}.png`. Use the rendered PNG, not the XML source. Add a caption with the diagram name so the block is traceable when auth blocks the image. | low |
+| `macro:expand` | `toggle` | Toggle rich_text = `title` parameter. Recursively convert `ac:rich-text-body` children into Notion blocks and attach as `children`. Inner macros (e.g. nested `code`, `status`) are converted by their own rules — do not flatten them. | high |
+| `macro:status` | `paragraph` rich_text w/ color annotation | Text = `title` parameter. `colour` → Notion annotation color: `Green→green`, `Red→red`, `Yellow→yellow`, `Blue→blue`, `Grey→gray` (note `gray`, not `grey`). Missing `colour` → `default`. When multiple status macros appear inline in one paragraph, emit multiple rich_text runs inside the same paragraph rather than separate blocks. | medium |
+| `macro:code` | `code` | `language` parameter → Notion `code.language` (lowercase; fall back to `plain text` when absent). Body = CDATA content of `ac:plain-text-body` placed verbatim into a single rich_text text run. Drop `title` and `linenumbers` — Notion has no equivalent. | high |
+
 ### Important rules
 
 - The `example_output` must be valid Notion API block JSON (as used in the `children` array of `pages.create`)

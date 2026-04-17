@@ -32,6 +32,24 @@ You are a pattern discovery agent. Your job is to analyze Confluence XHTML conte
    - Total `frequency` count across all pages
 4. **Write the output** as JSON to the specified output path
 
+### Required macro coverage checklist
+
+The following five macros are **first-class migration targets**. Whenever the input contains any of these, you MUST emit a pattern entry for them — never skip or merge them into other categories. If a macro is not present in the input, omit it; do not invent entries.
+
+| Macro | `ac:name` value | Body type | Key parameters to capture in snippets |
+|---|---|---|---|
+| Jira issue | `jira` | self-closing (no body) | `key` (issue key, e.g. `PROJ-123`), `server`, `serverId` |
+| Draw.io diagram | `drawio` | self-closing (no body) | `diagramName`, `revision`, optional `width`/`height` |
+| Expand (collapsible) | `expand` | `ac:rich-text-body` | `title` (heading text); body may contain nested blocks including other macros |
+| Status label | `status` | self-closing (no body) | `title` (label text), `colour` (Green/Red/Yellow/Blue/Grey) |
+| Code block | `code` | `ac:plain-text-body` CDATA | `language`, optional `title`, optional `linenumbers` |
+
+Recognition tips:
+- A macro is the `<ac:structured-macro ac:name="..."/>` element — match on the `ac:name` attribute, not the surrounding context.
+- `expand` wraps a `<ac:rich-text-body>` that can contain arbitrary block children, including nested `code`, `status`, and other macros. Report each inner macro as its own pattern too — do not merge them into the `expand` entry.
+- `code` always uses `<ac:plain-text-body><![CDATA[...]]></ac:plain-text-body>` — never `rich-text-body`. `status`, `jira`, and `drawio` have no body.
+- `status` may appear inline inside a paragraph (multiple per paragraph is common).
+
 ### Important rules
 
 - Extract snippets **verbatim** from the source — do not modify or prettify the XHTML
