@@ -80,13 +80,24 @@ run_agent() {
         return
     fi
 
+    local log_file="$OUTPUT_DIR/${step_name}.log"
     echo "==> Step $step_num: $step_name"
+    # Capture to file first, then mirror to stdout. `tee` was observed to
+    # silently drop dev-reviewer output (0-byte log) under --output-format text;
+    # direct redirect + cat is deterministic and survives SIGPIPE on the outer pipe.
+    set +e
     claude -p "$prompt" \
         --allowedTools "Read,Write,Bash,Glob,Grep,Edit" \
         --output-format text \
-        2>&1 | tee "$OUTPUT_DIR/${step_name}.log"
-
-    echo "    Done: $OUTPUT_DIR/"
+        >"$log_file" 2>&1
+    local exit_code=$?
+    set -e
+    cat "$log_file"
+    if [[ "$exit_code" -ne 0 ]]; then
+        echo "[ERROR] $step_name failed (exit=$exit_code)"
+        return "$exit_code"
+    fi
+    echo "    Done: $log_file"
 }
 
 # --- Helper: run lint + type check + tests ---
@@ -333,9 +344,12 @@ if [[ "$circuit_state" == "HALF_OPEN" && "$retry" -ge "$max_attempts" ]]; then
 fi
 
 if [[ "$circuit_state" == "OPEN" || "$retry" -ge "$max_attempts" ]]; then
-    # OPEN: fix loop broke out due to no progress → re-plan fallback
+    # Re-plan fallback. The condition fires for two distinct prior states:
+    #   - OPEN: errors weren't decreasing (caught mid-loop)
+    #   - CLOSED: max_attempts exhausted with progress but no approval
+    # Use the actual prior state in the transition log so observability matches reality.
     circuit_announce "entering re-plan fallback"
-    circuit_transition "OPEN" "HALF_OPEN" "probing re-plan"
+    circuit_transition "$circuit_state" "HALF_OPEN" "probing re-plan"
     circuit_write "HALF_OPEN" "$(count_errors)" 0
 
     run_agent 1 "dev-planner" \
