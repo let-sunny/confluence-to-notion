@@ -139,35 +139,70 @@ def fetch_tree(
     output: Path = typer.Option(
         Path("output/page-tree.json"), "--output", help="Output JSON path"
     ),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Fetch the Confluence page tree starting from a root page.
 
     Recursively collects child pages and writes the hierarchy as JSON.
+    When --url is provided, page-tree.json lands under ``output/runs/<slug>/``
+    alongside source.json, status.json, and report.md; ``--output`` is ignored
+    in that mode.
 
     Examples:
         cli fetch-tree --root-id 12345
         cli fetch-tree --root-id 12345 --output my-tree.json
+        cli fetch-tree --url <confluence-url> --root-id 12345
     """
     settings = _load_settings()
     client = ConfluenceClient(settings)
 
-    async def _run() -> None:
+    run_dir: Path | None = None
+    target = output
+    if url is not None:
+        run_dir, _ = start_run(Path("output"), url, "tree", root_id=root_id)
+        target = run_dir / "page-tree.json"
+        update_step(run_dir, "fetch", StepStatus.RUNNING)
+
+    async def _run() -> PageTreeNode:
         async with client:
-            tree = await client.collect_page_tree(root_id)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(tree.model_dump_json(indent=2) + "\n")
+            return await client.collect_page_tree(root_id)
 
     try:
-        asyncio.run(_run())
-    except httpx.HTTPStatusError as e:
-        msg = f"Confluence API error: {e.response.status_code} {e.response.text}"
-        console.print(f"[red]{msg}[/red]")
-        raise typer.Exit(code=1) from None
-    except httpx.ConnectError as e:
-        console.print(f"[red]Cannot connect to Confluence: {e}[/red]")
-        raise typer.Exit(code=1) from None
+        try:
+            tree = asyncio.run(_run())
+        except httpx.HTTPStatusError as e:
+            if run_dir is not None:
+                update_step(run_dir, "fetch", StepStatus.FAILED)
+            msg = f"Confluence API error: {e.response.status_code} {e.response.text}"
+            console.print(f"[red]{msg}[/red]")
+            raise typer.Exit(code=1) from None
+        except httpx.ConnectError as e:
+            if run_dir is not None:
+                update_step(run_dir, "fetch", StepStatus.FAILED)
+            console.print(f"[red]Cannot connect to Confluence: {e}[/red]")
+            raise typer.Exit(code=1) from None
 
-    console.print(f"[green]Page tree saved to {output}[/green]")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(tree.model_dump_json(indent=2) + "\n")
+
+        if run_dir is not None:
+            update_step(
+                run_dir, "fetch", StepStatus.DONE, count=_count_tree_nodes(tree)
+            )
+
+        console.print(f"[green]Page tree saved to {target}[/green]")
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
+
+
+def _count_tree_nodes(node: PageTreeNode) -> int:
+    """Return the total number of nodes in ``node`` (including itself)."""
+    return 1 + sum(_count_tree_nodes(child) for child in node.children)
 
 
 @app.command(name="notion-ping")
