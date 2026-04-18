@@ -583,6 +583,9 @@ def migrate_tree_pages(
                 page = await confluence.get_page(confluence_id)
                 xhtml_cache[confluence_id] = page.storage_body
 
+            # Tracks every unresolved table instance discovered during pre-convert,
+            # so a single signature can be created once and applied to every instance.
+            unresolved_tables: list[tuple[str, str, list[str]]] = []
             seen_signatures: set[str] = set()
             interactive = _stdin_is_tty()
             for confluence_id, xhtml in xhtml_cache.items():
@@ -599,6 +602,7 @@ def migrate_tree_pages(
                     headers = extract_headers_from_xhtml(item.context_xhtml)
                     if not headers:
                         continue
+                    unresolved_tables.append((confluence_id, item.identifier, headers))
                     sig = normalize_header_signature(headers)
                     if sig in seen_signatures:
                         continue
@@ -620,6 +624,33 @@ def migrate_tree_pages(
                     )
                     table_rule_store.upsert(headers, rule)
                     table_rule_store.save()
+
+            # For every is_database=True signature, create the Notion database once
+            # under the page where it was first observed and write a resolution
+            # entry for every instance so Pass 2 emits child_database blocks.
+            db_id_by_signature: dict[str, str] = {}
+            for confluence_id, identifier, headers in unresolved_tables:
+                resolved_rule = table_rule_store.lookup(headers)
+                if resolved_rule is None or not resolved_rule.is_database:
+                    continue
+                if resolved_rule.column_types is None or resolved_rule.title_column is None:
+                    continue
+                sig = normalize_header_signature(headers)
+                if sig not in db_id_by_signature:
+                    parent_for_db = id_to_notion[confluence_id]
+                    db_id_by_signature[sig] = await notion.create_database(
+                        parent_id=parent_for_db,
+                        title=resolved_rule.title_column,
+                        title_column=resolved_rule.title_column,
+                        column_types=resolved_rule.column_types,
+                    )
+                store.add(
+                    key=f"table:{identifier}",
+                    resolved_by="notion_migration",
+                    value={"database_id": db_id_by_signature[sig]},
+                )
+            if db_id_by_signature:
+                store.save()
 
             # --- Pass 2: convert with both stores and append to Notion ---
             succeeded = 0

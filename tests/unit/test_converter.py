@@ -1222,3 +1222,108 @@ class TestTableConversionWithTableRules:
         ]
         tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
         assert tables_unresolved == []
+
+
+# --- ResolutionStore database_id → child_database emission ---
+
+
+class TestResolutionStoreDatabaseIdEmission:
+    """When a 'table:{identifier}' entry carries database_id, emit a child_database
+    block referring to it INSTEAD of the layout table, and suppress the UnresolvedItem
+    so Pass 1.5 doesn't re-prompt forever.
+    """
+
+    @staticmethod
+    def _xhtml() -> str:
+        return (
+            "<table>"
+            "<thead><tr><th>Name</th><th>Role</th></tr></thead>"
+            "<tbody><tr><td>Alice</td><td>Dev</td></tr></tbody>"
+            "</table>"
+        )
+
+    def _identifier_for(self, xhtml: str) -> str:
+        first = convert_page(xhtml, _default_ruleset(), page_id="pg-1")
+        return next(u.identifier for u in first.unresolved if u.kind == "table")
+
+    def test_database_id_emits_child_database_reference_block(
+        self, tmp_path: Path
+    ) -> None:
+        """database_id in store → exactly one child_database block, zero UnresolvedItems."""
+        xhtml = self._xhtml()
+        identifier = self._identifier_for(xhtml)
+
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key=f"table:{identifier}",
+            resolved_by="notion_migration",
+            value={"database_id": "db-abc-123"},
+        )
+
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+
+        assert result.blocks == [
+            {"type": "child_database", "child_database": {"database_id": "db-abc-123"}}
+        ]
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
+
+    def test_legacy_notion_blocks_entry_unchanged(self, tmp_path: Path) -> None:
+        """Pre-existing notion_blocks entries (no database_id) still pass through verbatim."""
+        xhtml = self._xhtml()
+        identifier = self._identifier_for(xhtml)
+
+        store = ResolutionStore(tmp_path / "res.json")
+        legacy_blocks = [
+            {"type": "child_database", "child_database": {"title": "Legacy"}}
+        ]
+        store.add(
+            key=f"table:{identifier}",
+            resolved_by="ai_inference",
+            value={"notion_blocks": legacy_blocks},
+        )
+
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+        assert result.blocks == legacy_blocks
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
+
+    def test_store_miss_preserves_layout_table_path(self, tmp_path: Path) -> None:
+        """Store miss → existing layout table block + UnresolvedItem(kind='table')."""
+        xhtml = self._xhtml()
+        store = ResolutionStore(tmp_path / "res.json")  # empty
+
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+        table_blocks = [b for b in result.blocks if b["type"] == "table"]
+        assert len(table_blocks) == 1
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert len(tables_unresolved) == 1
+
+    def test_database_id_takes_precedence_over_notion_blocks(
+        self, tmp_path: Path
+    ) -> None:
+        """Entry carrying BOTH database_id and notion_blocks → database_id wins."""
+        xhtml = self._xhtml()
+        identifier = self._identifier_for(xhtml)
+
+        store = ResolutionStore(tmp_path / "res.json")
+        store.add(
+            key=f"table:{identifier}",
+            resolved_by="notion_migration",
+            value={
+                "database_id": "db-precedence",
+                "notion_blocks": [
+                    {"type": "child_database", "child_database": {"title": "Stale"}}
+                ],
+            },
+        )
+
+        result = convert_page(xhtml, _default_ruleset(), page_id="pg-1", store=store)
+        assert result.blocks == [
+            {
+                "type": "child_database",
+                "child_database": {"database_id": "db-precedence"},
+            }
+        ]
+        tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
+        assert tables_unresolved == []
