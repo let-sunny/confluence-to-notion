@@ -68,7 +68,7 @@ jobs:
         if: steps.prompt-check.outputs.changed == 'true'
         run: uv sync --dev
 
-      - name: Validate agent output schemas
+      - name: Prompt-change gate (no-op)
         if: steps.prompt-check.outputs.changed == 'true'
         run: |
-          echo "Agent prompts changed — schema validation gate"
+          echo "Agent prompts changed — gate placeholder (no real validation; see follow-up for API-backed discover run)"
