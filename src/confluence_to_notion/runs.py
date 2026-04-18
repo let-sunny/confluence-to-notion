@@ -6,9 +6,10 @@ pulling network dependencies.
 """
 
 import re
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
@@ -144,6 +145,76 @@ def _format_step_line(name: str, record: StepRecord) -> str:
     if record.warnings is not None:
         parts.append(f"warnings={record.warnings}")
     return "- " + " · ".join(parts)
+
+
+StepName = Literal["fetch", "discover", "convert", "migrate"]
+
+
+def start_run(
+    base: Path,
+    url: str,
+    source_type: str,
+    *,
+    root_id: str | None = None,
+    notion_target: dict[str, Any] | None = None,
+) -> tuple[Path, SourceInfo]:
+    """Allocate a new run directory under ``base/runs/`` and seed its artifacts.
+
+    Creates ``base/runs/<slug>/`` (with ``-2``/``-3``/... on collision), writes
+    the initial ``source.json`` describing where the run came from, and writes a
+    fresh ``status.json`` with every step at ``pending``. Returns the run dir
+    path and the ``SourceInfo`` that was persisted.
+    """
+    slug = slug_for_url(url)
+    run_dir = init_run_dir(base, slug)
+    source = SourceInfo(
+        url=url,
+        type=source_type,
+        root_id=root_id,
+        notion_target=notion_target,
+    )
+    (run_dir / "source.json").write_text(
+        source.model_dump_json(indent=2), encoding="utf-8"
+    )
+    write_status(run_dir, RunStatus())
+    return run_dir, source
+
+
+def update_step(
+    run_dir: Path,
+    step: StepName,
+    status: StepStatus | str,
+    *,
+    count: int | None = None,
+    warnings: int | None = None,
+) -> None:
+    """Mutate a single step in ``run_dir/status.json`` and persist the result.
+
+    Reads the existing status, replaces only ``step`` with a fresh ``StepRecord``
+    whose ``at`` is ``datetime.now(UTC).isoformat()``, and writes it back. Other
+    steps are preserved. Accepts either a ``StepStatus`` or the plain string
+    value so callers don't need to import the enum.
+    """
+    current = read_status(run_dir)
+    record = StepRecord(
+        status=StepStatus(status) if not isinstance(status, StepStatus) else status,
+        at=datetime.now(UTC).isoformat(),
+        count=count,
+        warnings=warnings,
+    )
+    updated = current.model_copy(update={step: record})
+    write_status(run_dir, updated)
+
+
+def finalize_run(run_dir: Path) -> None:
+    """Render ``run_dir/report.md`` from ``source.json`` + ``status.json``."""
+    source = SourceInfo.model_validate_json(
+        (run_dir / "source.json").read_text(encoding="utf-8")
+    )
+    status = read_status(run_dir)
+    (run_dir / "report.md").write_text(
+        render_report(source, status), encoding="utf-8"
+    )
 
 
 def render_report(

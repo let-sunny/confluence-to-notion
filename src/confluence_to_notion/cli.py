@@ -26,6 +26,12 @@ from confluence_to_notion.converter.table_rules import (
     normalize_header_signature,
 )
 from confluence_to_notion.notion.client import NotionClientWrapper
+from confluence_to_notion.runs import (
+    StepStatus,
+    finalize_run,
+    start_run,
+    update_step,
+)
 
 app = typer.Typer(help="confluence-to-notion: auto-discover transformation rules")
 console = Console()
@@ -55,14 +61,22 @@ def fetch(
     pages: str | None = typer.Option(None, help="Comma-separated page IDs"),
     limit: int = typer.Option(25, help="Max pages when using --space"),
     out_dir: Path = typer.Option(Path("samples"), help="Output directory"),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Fetch Confluence pages and save XHTML to disk.
 
     Use --space to list pages from a space, or --pages to fetch specific IDs.
+    When --url is provided, artifacts land under ``output/runs/<slug>/`` (samples/,
+    source.json, status.json, report.md); otherwise writes to --out-dir only.
 
     Examples:
         cli fetch --space KAFKA --limit 10
         cli fetch --pages 12345,67890,11111
+        cli fetch --url <confluence-url> --pages 12345
     """
     if not space and not pages:
         console.print("[red]Provide --space or --pages[/red]")
@@ -73,30 +87,50 @@ def fetch(
 
     page_ids = [p.strip() for p in pages.split(",") if p.strip()] if pages else None
 
+    target_dir = out_dir
+    run_dir: Path | None = None
+    if url is not None:
+        source_type = "space" if space else "page"
+        root_id = page_ids[0] if page_ids and len(page_ids) == 1 else None
+        run_dir, _ = start_run(Path("output"), url, source_type, root_id=root_id)
+        target_dir = run_dir / "samples"
+        update_step(run_dir, "fetch", StepStatus.RUNNING)
+
     async def _run() -> list[Path]:
         return await client.fetch_samples_to_disk(
-            out_dir,
+            target_dir,
             space_key=space,
             page_ids=page_ids,
             limit=limit,
         )
 
     try:
-        saved = asyncio.run(_run())
-    except httpx.HTTPStatusError as e:
-        msg = f"Confluence API error: {e.response.status_code} {e.response.text}"
-        console.print(f"[red]{msg}[/red]")
-        raise typer.Exit(code=1) from None
-    except httpx.ConnectError as e:
-        console.print(f"[red]Cannot connect to Confluence: {e}[/red]")
-        raise typer.Exit(code=1) from None
+        try:
+            saved = asyncio.run(_run())
+        except httpx.HTTPStatusError as e:
+            if run_dir is not None:
+                update_step(run_dir, "fetch", StepStatus.FAILED)
+            msg = f"Confluence API error: {e.response.status_code} {e.response.text}"
+            console.print(f"[red]{msg}[/red]")
+            raise typer.Exit(code=1) from None
+        except httpx.ConnectError as e:
+            if run_dir is not None:
+                update_step(run_dir, "fetch", StepStatus.FAILED)
+            console.print(f"[red]Cannot connect to Confluence: {e}[/red]")
+            raise typer.Exit(code=1) from None
 
-    if not saved:
-        console.print("[yellow]No pages fetched[/yellow]")
-    else:
-        console.print(f"[green]Saved {len(saved)} pages to {out_dir}[/green]")
-        for p in saved:
-            console.print(f"  {p}")
+        if run_dir is not None:
+            update_step(run_dir, "fetch", StepStatus.DONE, count=len(saved))
+
+        if not saved:
+            console.print("[yellow]No pages fetched[/yellow]")
+        else:
+            console.print(f"[green]Saved {len(saved)} pages to {target_dir}[/green]")
+            for p in saved:
+                console.print(f"  {p}")
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
 
 
 @app.command(name="fetch-tree")
