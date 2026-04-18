@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     notion_api_token: str | None = None
     notion_root_page_id: str | None = None
 
+    # Anthropic (optional — only needed for opt-in eval --llm-judge)
+    anthropic_api_key: str | None = None
+
     @field_validator("confluence_base_url")
     @classmethod
     def _validate_confluence_url(cls, v: str) -> str:

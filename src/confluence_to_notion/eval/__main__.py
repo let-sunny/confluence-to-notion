@@ -2,7 +2,12 @@
 
 Usage:
     uv run python -m confluence_to_notion.eval \
-        <output_dir> <fixture_dir> <results_dir> [<samples_dir>]
+        <output_dir> <fixture_dir> <results_dir> [<samples_dir>] [--llm-judge]
+
+The optional ``--llm-judge`` flag opts into the LLM-as-judge pass that scores
+each converted page across the 4 quality dimensions. Results attach to
+``EvalReport.llm_judge`` and are signal only (per ADR-004) — they do not flip
+the overall pass/fail exit code. Default runs do not call Anthropic.
 """
 
 import sys
@@ -12,25 +17,47 @@ from rich.console import Console
 from rich.table import Table
 
 from confluence_to_notion.eval.comparator import run_eval
+from confluence_to_notion.eval.llm_judge import run_llm_judge
 
 console = Console()
+
+LLM_JUDGE_FLAG = "--llm-judge"
+DEFAULT_JUDGE_CACHE_DIR = Path("eval_results/llm_judge_cache")
 
 
 def main() -> None:
     """Run eval and save results."""
-    if len(sys.argv) not in (4, 5):
+    args = sys.argv[1:]
+    llm_judge_enabled = LLM_JUDGE_FLAG in args
+    positional = [a for a in args if a != LLM_JUDGE_FLAG]
+
+    if len(positional) not in (3, 4):
         console.print(
             "[red]Usage: python -m confluence_to_notion.eval"
-            " <output_dir> <fixture_dir> <results_dir> [<samples_dir>][/red]"
+            " <output_dir> <fixture_dir> <results_dir> [<samples_dir>] [--llm-judge][/red]"
         )
         sys.exit(1)
 
-    output_dir = Path(sys.argv[1])
-    fixture_dir = Path(sys.argv[2])
-    results_dir = Path(sys.argv[3])
-    samples_dir = Path(sys.argv[4]) if len(sys.argv) == 5 else None
+    output_dir = Path(positional[0])
+    fixture_dir = Path(positional[1])
+    results_dir = Path(positional[2])
+    samples_dir = Path(positional[3]) if len(positional) == 4 else None
 
     report = run_eval(output_dir, fixture_dir, samples_dir=samples_dir)
+
+    if llm_judge_enabled:
+        if samples_dir is None:
+            console.print(
+                "[red]--llm-judge requires <samples_dir> to pair converted pages"
+                " with originals[/red]"
+            )
+            sys.exit(1)
+        converted_dir = output_dir / "converted"
+        report.llm_judge = run_llm_judge(
+            output_dir=converted_dir,
+            samples_dir=samples_dir,
+            cache_dir=DEFAULT_JUDGE_CACHE_DIR,
+        )
 
     # Save results
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -70,6 +97,9 @@ def main() -> None:
             f" across {cov.pages_analyzed} pages"
         )
 
+    if report.llm_judge is not None:
+        _print_llm_judge_table(report.llm_judge)
+
     if report.prompt_changed:
         console.print("[yellow]⚠ Agent prompts changed since last commit[/yellow]")
 
@@ -78,6 +108,45 @@ def main() -> None:
     else:
         console.print("[red]✗ Some agents failed — check missing/extra IDs above[/red]")
         sys.exit(1)
+
+
+def _print_llm_judge_table(judge_results: list) -> None:  # type: ignore[type-arg]
+    """Render per-page LLM-as-judge scores. Signal only — never affects exit code."""
+    if not judge_results:
+        console.print("[yellow]LLM judge: no paired pages were scored[/yellow]")
+        return
+
+    table = Table(title="LLM-as-Judge Scores (1-5, signal only)")
+    table.add_column("Page", style="cyan")
+    table.add_column("Info", justify="right")
+    table.add_column("Notion", justify="right")
+    table.add_column("Struct", justify="right")
+    table.add_column("Read", justify="right")
+    table.add_column("Mean", justify="right", style="bold")
+    table.add_column("Cache", justify="center")
+
+    overall_means: list[float] = []
+    for r in judge_results:
+        info = r.scores["information_preservation"]
+        idiom = r.scores["notion_idiom"]
+        struct = r.scores["structure"]
+        read = r.scores["readability"]
+        mean = (info + idiom + struct + read) / 4
+        overall_means.append(mean)
+        table.add_row(
+            r.page_id,
+            str(info),
+            str(idiom),
+            str(struct),
+            str(read),
+            f"{mean:.2f}",
+            "✓" if r.cache_hit else "·",
+        )
+
+    console.print(table)
+    if overall_means:
+        grand = sum(overall_means) / len(overall_means)
+        console.print(f"[cyan]LLM judge overall mean:[/cyan] {grand:.2f}/5")
 
 
 if __name__ == "__main__":
