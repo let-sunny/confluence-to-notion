@@ -100,6 +100,45 @@ run_agent() {
     echo "    Done: $log_file"
 }
 
+# --- Helper: apply protected-paths.patch emitted by an agent ---
+#
+# Subagents cannot write to most paths under `.claude/` — the write guard applies to
+# Edit/Write tools AND to Bash subprocesses in non-interactive (`-p`) sessions (local
+# smoke tests for #76 confirmed Bash is also blocked). The dev-implementer/dev-fixer
+# prompts instruct agents to emit a unified diff to $OUTPUT_DIR/protected-paths.patch
+# instead; this helper runs `git apply` from the script context (no guard here), then
+# deletes the patch so the next step starts clean. Fails loud — silent skip would let
+# the pipeline produce a PR that omits intended protected-path changes.
+apply_protected_patch() {
+    local step_num="$1"
+    local source_label="$2"
+
+    if [[ "$step_num" -lt "$FROM_STEP" ]]; then
+        return 0
+    fi
+
+    local patch_file="$OUTPUT_DIR/protected-paths.patch"
+    if [[ ! -f "$patch_file" ]]; then
+        return 0
+    fi
+    if [[ ! -s "$patch_file" ]]; then
+        echo "    [protected-patch] empty patch file from $source_label — removing"
+        rm -f "$patch_file"
+        return 0
+    fi
+
+    echo "==> Applying protected-paths.patch (emitted by $source_label)"
+    if git apply --verbose "$patch_file"; then
+        echo "    [protected-patch] applied successfully"
+        rm -f "$patch_file"
+        return 0
+    fi
+    echo "[ERROR] git apply failed on $patch_file"
+    echo "    Patch preserved for manual inspection. First 50 lines:"
+    head -50 "$patch_file"
+    return 1
+}
+
 # --- Helper: run lint + type check + tests ---
 run_checks() {
     local step_num="$1"
@@ -423,6 +462,10 @@ Execute the development plan in ${OUTPUT_DIR}/plan.json.
 Read the plan, then implement each task in order following TDD.
 After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
 
+# Apply any patch the implementer emitted for protected `.claude/**` paths (see
+# apply_protected_patch docstring). Runs before Step 3 so test/lint sees the changes.
+apply_protected_patch 2 "dev-implementer" || { echo "[ERROR] Step 2: protected patch apply failed"; exit 1; }
+
 # --- Step 3: Test ---
 if [[ "$FROM_STEP" -le 3 ]]; then
     if ! run_checks 3 "test"; then
@@ -496,6 +539,9 @@ while [[ "$retry" -lt "$max_attempts" ]]; do
 
 Fix the issues in ${OUTPUT_DIR}/review.json.
 Read the review, then apply fixes to resolve each issue."
+
+        # Apply any patch the fixer emitted for protected `.claude/**` paths.
+        apply_protected_patch 5 "dev-fixer" || { echo "[ERROR] Step 5: protected patch apply failed"; exit 1; }
     fi
 
     if [[ "$FROM_STEP" -le 6 ]]; then
@@ -561,6 +607,9 @@ Write the new plan to ${OUTPUT_DIR}/plan.json"
 Execute the development plan in ${OUTPUT_DIR}/plan.json.
 Read the plan, then implement each task in order following TDD.
 After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
+
+    # Apply any patch the re-plan implementer emitted for protected `.claude/**` paths.
+    apply_protected_patch 2 "dev-implementer (re-plan)" || { echo "[ERROR] Re-plan: protected patch apply failed"; exit 1; }
 
     # Half-open probe: one verify attempt
     circuit_announce "re-plan probe verify"
