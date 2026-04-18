@@ -346,6 +346,49 @@ class SemanticCoverage(BaseModel):
         return self
 
 
+_LLM_JUDGE_DIMENSIONS: tuple[str, ...] = (
+    "information_preservation",
+    "notion_idiom",
+    "structure",
+    "readability",
+)
+
+
+class LLMJudgeResult(BaseModel):
+    """Per-page LLM-as-judge score across the 4 conversion-quality dimensions.
+
+    Signal-only per ADR-004 — never flips ``EvalReport.overall_pass``.
+    """
+
+    page_id: str = Field(description="Confluence page ID being judged")
+    scores: dict[str, int] = Field(
+        description=(
+            "Score per dimension (1-5). Required keys: "
+            "information_preservation, notion_idiom, structure, readability."
+        )
+    )
+    overall_comment: str = Field(description="Free-form judge commentary")
+    model: str = Field(description="Anthropic model id used to score")
+    cache_hit: bool = Field(description="True if loaded from cache, no API call")
+
+    @model_validator(mode="after")
+    def _validate_scores(self) -> "LLMJudgeResult":
+        required = set(_LLM_JUDGE_DIMENSIONS)
+        actual = set(self.scores)
+        missing = required - actual
+        if missing:
+            raise ValueError(f"scores missing required dimensions: {sorted(missing)}")
+        extra = actual - required
+        if extra:
+            raise ValueError(f"scores has unknown dimensions: {sorted(extra)}")
+        for dim, value in self.scores.items():
+            if not 1 <= value <= 5:
+                raise ValueError(
+                    f"scores[{dim!r}] = {value} is out of range; must be 1<=v<=5"
+                )
+        return self
+
+
 class EvalReport(BaseModel):
     """Full eval report comparing agent outputs against fixtures."""
 
@@ -362,4 +405,11 @@ class EvalReport(BaseModel):
     semantic_coverage: SemanticCoverage | None = Field(
         default=None,
         description="Semantic coverage of sample elements by discovered patterns",
+    )
+    llm_judge: list[LLMJudgeResult] | None = Field(
+        default=None,
+        description=(
+            "Optional per-page LLM-as-judge scores. Signal only — does not affect "
+            "overall_pass."
+        ),
     )

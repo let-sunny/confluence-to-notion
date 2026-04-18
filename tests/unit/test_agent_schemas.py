@@ -19,6 +19,7 @@ from confluence_to_notion.agents.schemas import (
     EvalReport,
     FinalRule,
     FinalRuleset,
+    LLMJudgeResult,
     PipelineState,
     ProposedRule,
     ProposerOutput,
@@ -964,3 +965,148 @@ class TestEvalReportSemanticCoverageField:
         )
         report = EvalReport.model_validate_json(legacy_json)
         assert report.semantic_coverage is None
+
+
+# --- LLMJudgeResult ---
+
+
+_REQUIRED_DIMS = (
+    "information_preservation",
+    "notion_idiom",
+    "structure",
+    "readability",
+)
+
+
+def _full_scores(value: int = 4) -> dict[str, int]:
+    return {dim: value for dim in _REQUIRED_DIMS}
+
+
+class TestLLMJudgeResult:
+    def test_valid_result(self) -> None:
+        r = LLMJudgeResult(
+            page_id="27835336",
+            scores=_full_scores(4),
+            overall_comment="대체로 잘 변환됨",
+            model="claude-sonnet-4-6",
+            cache_hit=False,
+        )
+        assert r.page_id == "27835336"
+        assert r.scores["information_preservation"] == 4
+        assert r.cache_hit is False
+        assert r.model == "claude-sonnet-4-6"
+
+    def test_score_min_boundary(self) -> None:
+        r = LLMJudgeResult(
+            page_id="p1",
+            scores=_full_scores(1),
+            overall_comment="형편없음",
+            model="claude-sonnet-4-6",
+            cache_hit=True,
+        )
+        assert r.scores["readability"] == 1
+
+    def test_score_max_boundary(self) -> None:
+        r = LLMJudgeResult(
+            page_id="p1",
+            scores=_full_scores(5),
+            overall_comment="완벽",
+            model="claude-sonnet-4-6",
+            cache_hit=False,
+        )
+        assert r.scores["structure"] == 5
+
+    def test_rejects_score_below_one(self) -> None:
+        scores = _full_scores(3)
+        scores["information_preservation"] = 0
+        with pytest.raises(ValidationError, match="information_preservation"):
+            LLMJudgeResult(
+                page_id="p1",
+                scores=scores,
+                overall_comment="x",
+                model="claude-sonnet-4-6",
+                cache_hit=False,
+            )
+
+    def test_rejects_score_above_five(self) -> None:
+        scores = _full_scores(3)
+        scores["readability"] = 6
+        with pytest.raises(ValidationError, match="readability"):
+            LLMJudgeResult(
+                page_id="p1",
+                scores=scores,
+                overall_comment="x",
+                model="claude-sonnet-4-6",
+                cache_hit=False,
+            )
+
+    def test_rejects_missing_dimension(self) -> None:
+        scores = _full_scores(3)
+        del scores["notion_idiom"]
+        with pytest.raises(ValidationError, match="notion_idiom"):
+            LLMJudgeResult(
+                page_id="p1",
+                scores=scores,
+                overall_comment="x",
+                model="claude-sonnet-4-6",
+                cache_hit=False,
+            )
+
+    def test_rejects_extra_dimension(self) -> None:
+        scores = _full_scores(3)
+        scores["unknown_dim"] = 4
+        with pytest.raises(ValidationError, match="unknown_dim"):
+            LLMJudgeResult(
+                page_id="p1",
+                scores=scores,
+                overall_comment="x",
+                model="claude-sonnet-4-6",
+                cache_hit=False,
+            )
+
+    def test_json_roundtrip(self) -> None:
+        r = LLMJudgeResult(
+            page_id="27835336",
+            scores=_full_scores(3),
+            overall_comment="좋음",
+            model="claude-sonnet-4-6",
+            cache_hit=True,
+        )
+        parsed = LLMJudgeResult.model_validate_json(r.model_dump_json())
+        assert parsed == r
+
+
+class TestEvalReportLLMJudgeField:
+    def test_llm_judge_defaults_to_none(self) -> None:
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+        )
+        assert report.llm_judge is None
+
+    def test_llm_judge_accepts_list(self) -> None:
+        judge = LLMJudgeResult(
+            page_id="p1",
+            scores=_full_scores(4),
+            overall_comment="ok",
+            model="claude-sonnet-4-6",
+            cache_hit=False,
+        )
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+            llm_judge=[judge],
+        )
+        assert report.llm_judge == [judge]
+
+    def test_legacy_report_without_llm_judge_still_parses(self) -> None:
+        legacy_json = (
+            '{"timestamp": "2026-04-18T00:00:00Z",'
+            ' "prompt_changed": false,'
+            ' "results": [],'
+            ' "overall_pass": true}'
+        )
+        report = EvalReport.model_validate_json(legacy_json)
+        assert report.llm_judge is None
