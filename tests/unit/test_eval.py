@@ -1,24 +1,18 @@
-"""Unit tests for eval framework: schemas and comparator logic."""
+"""Unit tests for eval framework: run_eval + prompt-change detection."""
 
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
 
 from confluence_to_notion.agents.schemas import (
     DiscoveryOutput,
     DiscoveryPattern,
-    EvalMatchResult,
     EvalReport,
-    ProposedRule,
-    ProposerOutput,
     SemanticCoverage,
 )
 from confluence_to_notion.eval.comparator import (
-    compare_discovery,
-    compare_proposer,
     detect_prompt_changes,
     run_eval,
 )
@@ -45,311 +39,11 @@ def _make_discovery(*pattern_ids: str) -> DiscoveryOutput:
     )
 
 
-def _make_rule(rule_id: str) -> ProposedRule:
-    return ProposedRule(
-        rule_id=rule_id,
-        source_pattern_id=rule_id.replace("rule:", ""),
-        source_description=f"Source for {rule_id}",
-        notion_block_type="paragraph",
-        mapping_description=f"Map {rule_id}",
-        example_input="<x/>",
-        example_output={"type": "paragraph"},
-        confidence="high",
+def _write_patterns(output_dir: Path, *pattern_ids: str) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "patterns.json").write_text(
+        _make_discovery(*pattern_ids).model_dump_json()
     )
-
-
-def _make_proposer(*rule_ids: str) -> ProposerOutput:
-    return ProposerOutput(
-        source_patterns_file="output/patterns.json",
-        rules=[_make_rule(rid) for rid in rule_ids],
-    )
-
-
-# --- EvalMatchResult Schema ---
-
-
-class TestEvalMatchResult:
-    def test_valid_pass(self) -> None:
-        r = EvalMatchResult(
-            agent_name="pattern-discovery",
-            status="pass",
-            expected_ids=["a", "b"],
-            actual_ids=["a", "b"],
-            missing_ids=[],
-            extra_ids=[],
-            recall=1.0,
-            precision=1.0,
-            score=1.0,
-        )
-        assert r.status == "pass"
-        assert r.recall == 1.0
-        assert r.precision == 1.0
-        assert r.score == 1.0
-
-    def test_valid_fail(self) -> None:
-        r = EvalMatchResult(
-            agent_name="rule-proposer",
-            status="fail",
-            expected_ids=["a"],
-            actual_ids=["b"],
-            missing_ids=["a"],
-            extra_ids=["b"],
-            recall=0.0,
-            precision=0.0,
-            score=0.0,
-        )
-        assert r.status == "fail"
-        assert r.score == 0.0
-
-    def test_valid_partial(self) -> None:
-        r = EvalMatchResult(
-            agent_name="pattern-discovery",
-            status="partial",
-            expected_ids=["a", "b"],
-            actual_ids=["a", "c"],
-            missing_ids=["b"],
-            extra_ids=["c"],
-            recall=0.5,
-            precision=0.5,
-            score=0.5,
-        )
-        assert r.status == "partial"
-
-    def test_invalid_status_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="status"):
-            EvalMatchResult(
-                agent_name="test",
-                status="unknown",
-                expected_ids=[],
-                actual_ids=[],
-                missing_ids=[],
-                extra_ids=[],
-                recall=0.0,
-                precision=0.0,
-                score=0.0,
-            )
-
-    def test_score_must_be_between_0_and_1(self) -> None:
-        with pytest.raises(ValidationError, match="score"):
-            EvalMatchResult(
-                agent_name="test",
-                status="pass",
-                expected_ids=[],
-                actual_ids=[],
-                missing_ids=[],
-                extra_ids=[],
-                recall=1.0,
-                precision=1.0,
-                score=1.5,
-            )
-        with pytest.raises(ValidationError, match="score"):
-            EvalMatchResult(
-                agent_name="test",
-                status="fail",
-                expected_ids=[],
-                actual_ids=[],
-                missing_ids=[],
-                extra_ids=[],
-                recall=0.0,
-                precision=0.0,
-                score=-0.1,
-            )
-
-    def test_json_roundtrip(self) -> None:
-        r = EvalMatchResult(
-            agent_name="pattern-discovery",
-            status="partial",
-            expected_ids=["a", "b", "c"],
-            actual_ids=["a", "b", "d"],
-            missing_ids=["c"],
-            extra_ids=["d"],
-            recall=0.67,
-            precision=0.67,
-            score=0.67,
-        )
-        json_str = r.model_dump_json(indent=2)
-        parsed = EvalMatchResult.model_validate_json(json_str)
-        assert parsed == r
-
-
-# --- EvalReport Schema ---
-
-
-class TestEvalReport:
-    def test_valid_report(self) -> None:
-        result = EvalMatchResult(
-            agent_name="pattern-discovery",
-            status="pass",
-            expected_ids=["a"],
-            actual_ids=["a"],
-            missing_ids=[],
-            extra_ids=[],
-            recall=1.0,
-            precision=1.0,
-            score=1.0,
-        )
-        report = EvalReport(
-            timestamp="2026-04-16T12:00:00Z",
-            prompt_changed=False,
-            results=[result],
-            overall_pass=True,
-        )
-        assert report.overall_pass is True
-        assert len(report.results) == 1
-
-    def test_overall_pass_false_when_any_fail(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-16T12:00:00Z",
-            prompt_changed=True,
-            results=[
-                EvalMatchResult(
-                    agent_name="pattern-discovery",
-                    status="pass",
-                    expected_ids=["a"],
-                    actual_ids=["a"],
-                    missing_ids=[],
-                    extra_ids=[],
-                    recall=1.0,
-                    precision=1.0,
-                    score=1.0,
-                ),
-                EvalMatchResult(
-                    agent_name="rule-proposer",
-                    status="fail",
-                    expected_ids=["a"],
-                    actual_ids=[],
-                    missing_ids=["a"],
-                    extra_ids=[],
-                    recall=0.0,
-                    precision=1.0,
-                    score=0.0,
-                ),
-            ],
-            overall_pass=False,
-        )
-        assert report.overall_pass is False
-
-    def test_prompt_changed_default_false(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-16T12:00:00Z",
-            results=[],
-            overall_pass=True,
-        )
-        assert report.prompt_changed is False
-
-    def test_json_roundtrip(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-16T12:00:00Z",
-            prompt_changed=True,
-            results=[
-                EvalMatchResult(
-                    agent_name="pattern-discovery",
-                    status="partial",
-                    expected_ids=["a", "b"],
-                    actual_ids=["a"],
-                    missing_ids=["b"],
-                    extra_ids=[],
-                    recall=0.5,
-                    precision=1.0,
-                    score=0.67,
-                ),
-            ],
-            overall_pass=False,
-        )
-        json_str = report.model_dump_json(indent=2)
-        parsed = EvalReport.model_validate_json(json_str)
-        assert parsed == report
-
-
-# --- compare_discovery ---
-
-
-class TestCompareDiscovery:
-    def test_all_match(self) -> None:
-        expected = _make_discovery("macro:toc", "macro:code")
-        actual = _make_discovery("macro:toc", "macro:code")
-        result = compare_discovery(actual, expected)
-        assert result.status == "pass"
-        assert result.recall == 1.0
-        assert result.precision == 1.0
-        assert result.score == 1.0
-        assert result.missing_ids == []
-        assert result.extra_ids == []
-        assert result.agent_name == "pattern-discovery"
-
-    def test_partial_match(self) -> None:
-        expected = _make_discovery("macro:toc", "macro:code", "element:ac-link")
-        actual = _make_discovery("macro:toc", "element:ac-link")
-        result = compare_discovery(actual, expected)
-        assert result.status == "partial"
-        assert result.recall == pytest.approx(2 / 3)
-        assert result.precision == 1.0
-        assert 0 < result.score < 1
-        assert result.missing_ids == ["macro:code"]
-        assert result.extra_ids == []
-
-    def test_no_match(self) -> None:
-        expected = _make_discovery("macro:toc", "macro:code")
-        actual = _make_discovery("element:ac-link", "formatting:bold")
-        result = compare_discovery(actual, expected)
-        assert result.status == "fail"
-        assert result.recall == 0.0
-        assert result.precision == 0.0
-        assert result.score == 0.0
-        assert sorted(result.missing_ids) == ["macro:code", "macro:toc"]
-        assert sorted(result.extra_ids) == ["element:ac-link", "formatting:bold"]
-
-    def test_extra_patterns_in_actual(self) -> None:
-        expected = _make_discovery("macro:toc")
-        actual = _make_discovery("macro:toc", "macro:code")
-        result = compare_discovery(actual, expected)
-        assert result.status == "partial"  # precision < 1.0
-        assert result.recall == 1.0
-        assert result.precision == pytest.approx(0.5)
-        assert result.missing_ids == []
-        assert result.extra_ids == ["macro:code"]
-
-
-# --- compare_proposer ---
-
-
-class TestCompareProposer:
-    def test_all_match(self) -> None:
-        expected = _make_proposer("rule:macro:toc", "rule:macro:code")
-        actual = _make_proposer("rule:macro:toc", "rule:macro:code")
-        result = compare_proposer(actual, expected)
-        assert result.status == "pass"
-        assert result.recall == 1.0
-        assert result.precision == 1.0
-        assert result.score == 1.0
-        assert result.agent_name == "rule-proposer"
-
-    def test_partial_match(self) -> None:
-        expected = _make_proposer("rule:macro:toc", "rule:macro:code")
-        actual = _make_proposer("rule:macro:toc")
-        result = compare_proposer(actual, expected)
-        assert result.status == "partial"
-        assert result.recall == pytest.approx(0.5)
-        assert result.precision == 1.0
-        assert result.missing_ids == ["rule:macro:code"]
-
-    def test_no_match(self) -> None:
-        expected = _make_proposer("rule:macro:toc")
-        actual = _make_proposer("rule:element:ac-link")
-        result = compare_proposer(actual, expected)
-        assert result.status == "fail"
-        assert result.recall == 0.0
-        assert result.precision == 0.0
-        assert result.score == 0.0
-
-    def test_extra_rules_in_actual(self) -> None:
-        expected = _make_proposer("rule:macro:toc")
-        actual = _make_proposer("rule:macro:toc", "rule:macro:code")
-        result = compare_proposer(actual, expected)
-        assert result.status == "partial"  # precision < 1.0
-        assert result.recall == 1.0
-        assert result.precision == pytest.approx(0.5)
-        assert result.extra_ids == ["rule:macro:code"]
 
 
 # --- detect_prompt_changes ---
@@ -381,68 +75,64 @@ class TestDetectPromptChanges:
 
 # --- run_eval ---
 
-FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "eval"
-
 
 class TestRunEval:
-    @staticmethod
-    def _setup_output_dir(tmp_path: Path) -> Path:
-        """Copy fixture files as 'actual' output (patterns.json, proposals.json)."""
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
-        (output_dir / "patterns.json").write_text(
-            (FIXTURE_DIR / "expected_patterns.json").read_text()
-        )
-        (output_dir / "proposals.json").write_text(
-            (FIXTURE_DIR / "expected_proposals.json").read_text()
-        )
-        return output_dir
-
-    @staticmethod
-    def _setup_samples_dir(tmp_path: Path) -> Path:
-        samples_dir = tmp_path / "samples"
-        samples_dir.mkdir()
-        # Use a macro the eval fixture's patterns actually cover (macro:toc),
-        # plus one it doesn't (macro:unknown) so coverage is strictly < 1.
-        (samples_dir / "p1.xhtml").write_text(
-            '<ac:structured-macro ac:name="toc"/>'
-            '<ac:structured-macro ac:name="unknown-thing"/>',
-            encoding="utf-8",
-        )
-        return samples_dir
-
     @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
-    def test_run_eval_perfect_match(self, mock_detect: Any, tmp_path: Path) -> None:
-        """When actual == expected, all agents pass."""
-        output_dir = self._setup_output_dir(tmp_path)
-        report = run_eval(output_dir, FIXTURE_DIR)
-        assert report.overall_pass is True
-        assert len(report.results) == 2
-        assert all(r.status == "pass" for r in report.results)
+    def test_run_eval_produces_report_without_samples(
+        self, mock_detect: Any, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "output"
+        _write_patterns(output_dir, "macro:toc")
+        report = run_eval(output_dir)
         assert report.prompt_changed is False
+        assert report.semantic_coverage is None
+        assert report.llm_judge is None
+        assert report.baseline_comparison is None
 
     @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=True)
-    def test_run_eval_detects_prompt_changes(self, mock_detect: Any, tmp_path: Path) -> None:
-        output_dir = self._setup_output_dir(tmp_path)
-        report = run_eval(output_dir, FIXTURE_DIR)
+    def test_run_eval_detects_prompt_changes(
+        self, mock_detect: Any, tmp_path: Path
+    ) -> None:
+        output_dir = tmp_path / "output"
+        _write_patterns(output_dir, "macro:toc")
+        report = run_eval(output_dir)
         assert report.prompt_changed is True
 
-    def test_run_eval_missing_file_raises(self, tmp_path: Path) -> None:
+    def test_run_eval_missing_patterns_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
-            run_eval(tmp_path, FIXTURE_DIR)
+            run_eval(tmp_path)
 
     @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
     def test_run_eval_populates_semantic_coverage_when_samples_given(
         self, mock_detect: Any, tmp_path: Path
     ) -> None:
-        output_dir = self._setup_output_dir(tmp_path)
-        samples_dir = self._setup_samples_dir(tmp_path)
-        report = run_eval(output_dir, FIXTURE_DIR, samples_dir=samples_dir)
+        output_dir = tmp_path / "output"
+        output_dir.mkdir(parents=True)
+        toc_pattern = DiscoveryPattern(
+            pattern_id="macro:toc",
+            pattern_type="macro",
+            description="TOC macro",
+            example_snippets=['<ac:structured-macro ac:name="toc"/>'],
+            source_pages=["p1"],
+            frequency=1,
+        )
+        (output_dir / "patterns.json").write_text(
+            DiscoveryOutput(
+                sample_dir="samples/", pages_analyzed=1, patterns=[toc_pattern]
+            ).model_dump_json()
+        )
+        samples_dir = tmp_path / "samples"
+        samples_dir.mkdir()
+        (samples_dir / "p1.xhtml").write_text(
+            '<ac:structured-macro ac:name="toc"/>'
+            '<ac:structured-macro ac:name="unknown-thing"/>',
+            encoding="utf-8",
+        )
+        report = run_eval(output_dir, samples_dir=samples_dir)
         assert report.semantic_coverage is not None
         assert report.semantic_coverage.pages_analyzed == 1
         assert "macro:toc" in report.semantic_coverage.sample_elements
         assert "macro:unknown-thing" in report.semantic_coverage.sample_elements
-        # patterns.json covers macro:toc but not macro:unknown-thing.
         assert "macro:toc" in report.semantic_coverage.covered_elements
         assert "macro:unknown-thing" not in report.semantic_coverage.covered_elements
         assert report.semantic_coverage.coverage_ratio == pytest.approx(0.5)
@@ -451,26 +141,13 @@ class TestRunEval:
     def test_run_eval_without_samples_leaves_coverage_none(
         self, mock_detect: Any, tmp_path: Path
     ) -> None:
-        output_dir = self._setup_output_dir(tmp_path)
-        report = run_eval(output_dir, FIXTURE_DIR)
+        output_dir = tmp_path / "output"
+        _write_patterns(output_dir, "macro:toc")
+        report = run_eval(output_dir)
         assert report.semantic_coverage is None
 
 
 # --- CLI baseline diff + opt-in regression gating ---
-
-
-def _cli_eval_match_result() -> EvalMatchResult:
-    return EvalMatchResult(
-        agent_name="pattern-discovery",
-        status="pass",
-        expected_ids=["a"],
-        actual_ids=["a"],
-        missing_ids=[],
-        extra_ids=[],
-        recall=1.0,
-        precision=1.0,
-        score=1.0,
-    )
 
 
 def _cli_coverage(ratio: float) -> SemanticCoverage:
@@ -488,8 +165,6 @@ def _cli_report(timestamp: str, coverage_ratio: float) -> EvalReport:
     return EvalReport(
         timestamp=timestamp,
         prompt_changed=False,
-        results=[_cli_eval_match_result()],
-        overall_pass=True,
         semantic_coverage=_cli_coverage(coverage_ratio),
     )
 
@@ -504,12 +179,10 @@ class TestEvalCliBaselineGating:
     """main() should attach baseline_comparison and honor --fail-on-regression."""
 
     @staticmethod
-    def _argv(output_dir: Path, fixture_dir: Path, results_dir: Path,
-              *flags: str) -> list[str]:
+    def _argv(output_dir: Path, results_dir: Path, *flags: str) -> list[str]:
         return [
             "confluence_to_notion.eval",
             str(output_dir),
-            str(fixture_dir),
             str(results_dir),
             *flags,
         ]
@@ -518,7 +191,6 @@ class TestEvalCliBaselineGating:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         output_dir = tmp_path / "output"
-        fixture_dir = tmp_path / "fixtures"
         results_dir = tmp_path / "results"
         output_dir.mkdir()
 
@@ -529,7 +201,7 @@ class TestEvalCliBaselineGating:
         monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
         monkeypatch.setattr(
             "sys.argv",
-            self._argv(output_dir, fixture_dir, results_dir),
+            self._argv(output_dir, results_dir),
         )
         cli.main()  # must not raise SystemExit(1)
 
@@ -544,14 +216,12 @@ class TestEvalCliBaselineGating:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         output_dir = tmp_path / "output"
-        fixture_dir = tmp_path / "fixtures"
         results_dir = tmp_path / "results"
         output_dir.mkdir()
 
         baseline = _cli_report("2026-04-17T00:00:00+00:00", coverage_ratio=1.0)
         _write_baseline_snapshot(results_dir, baseline)
 
-        # Drop coverage from 1.0 to 0.5 — regression beyond default threshold.
         current = _cli_report("2026-04-18T00:00:00+00:00", coverage_ratio=0.5)
 
         from confluence_to_notion.eval import __main__ as cli
@@ -559,7 +229,7 @@ class TestEvalCliBaselineGating:
         monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
         monkeypatch.setattr(
             "sys.argv",
-            self._argv(output_dir, fixture_dir, results_dir),
+            self._argv(output_dir, results_dir),
         )
         cli.main()  # no SystemExit(1) expected
 
@@ -574,7 +244,6 @@ class TestEvalCliBaselineGating:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         output_dir = tmp_path / "output"
-        fixture_dir = tmp_path / "fixtures"
         results_dir = tmp_path / "results"
         output_dir.mkdir()
 
@@ -588,7 +257,7 @@ class TestEvalCliBaselineGating:
         monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
         monkeypatch.setattr(
             "sys.argv",
-            self._argv(output_dir, fixture_dir, results_dir, "--fail-on-regression"),
+            self._argv(output_dir, results_dir, "--fail-on-regression"),
         )
         with pytest.raises(SystemExit) as exc_info:
             cli.main()
@@ -602,7 +271,6 @@ class TestEvalCliBaselineGating:
     ) -> None:
         """load_latest_baseline must fire BEFORE the current snapshot is written."""
         output_dir = tmp_path / "output"
-        fixture_dir = tmp_path / "fixtures"
         results_dir = tmp_path / "results"
         output_dir.mkdir()
 
@@ -613,7 +281,7 @@ class TestEvalCliBaselineGating:
         monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
         monkeypatch.setattr(
             "sys.argv",
-            self._argv(output_dir, fixture_dir, results_dir),
+            self._argv(output_dir, results_dir),
         )
         cli.main()
 

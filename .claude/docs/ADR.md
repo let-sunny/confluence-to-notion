@@ -24,7 +24,7 @@
 
 - **Decision**: `tests/fixtures/eval/expected_*.json` rule_id 매칭은 회귀 감지 신호로만 사용. 머지 게이트로 쓰지 않음. 향후 의미적 커버리지 + LLM-as-judge로 재설계.
 - **Why**: 같은 매크로도 문서 맥락에 따라 다양한 Notion 매핑이 자연스러움(N:M). 매크로 종류는 무한 확장(유저 플러그인) + LLM 출력의 rule_id 비결정성 때문에 정답표 enumerate는 본질적 한계.
-- **Impact**: CLAUDE.md "프롬프트 변경 전 run-eval.sh" 규칙은 변경의 영향 가시화 용도로만 유지. PR 머지 결정에서 `partial`/낮은 F1을 자동 reject 사유로 쓰지 않음.
+- **Impact**: CLAUDE.md "프롬프트 변경 전 run-eval.sh" 규칙은 변경의 영향 가시화 용도로만 유지. PR 머지 결정에서 `partial`/낮은 F1을 자동 reject 사유로 쓰지 않음. Migration(#86): `compare_discovery`/`compare_proposer`, `EvalMatchResult`, `EvalReport.results`/`overall_pass`, `tests/fixtures/eval/expected_*.json` 를 제거 — eval은 semantic coverage + LLM-as-judge + baseline diff 로만 동작.
 
 ## ADR-005: Ambiguity → Ask Human → Persist as Rule
 

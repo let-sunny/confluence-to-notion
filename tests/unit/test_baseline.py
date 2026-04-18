@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from confluence_to_notion.agents.schemas import (
-    EvalMatchResult,
     EvalReport,
     LLMJudgeResult,
     SemanticCoverage,
@@ -16,20 +15,6 @@ from confluence_to_notion.eval.baseline import (
 )
 
 # --- Helpers ---
-
-
-def _make_eval_match_result() -> EvalMatchResult:
-    return EvalMatchResult(
-        agent_name="pattern-discovery",
-        status="pass",
-        expected_ids=["a"],
-        actual_ids=["a"],
-        missing_ids=[],
-        extra_ids=[],
-        recall=1.0,
-        precision=1.0,
-        score=1.0,
-    )
 
 
 def _make_coverage(ratio: float) -> SemanticCoverage:
@@ -79,8 +64,6 @@ def _make_report(
     return EvalReport(
         timestamp=timestamp,
         prompt_changed=False,
-        results=[_make_eval_match_result()],
-        overall_pass=True,
         semantic_coverage=semantic_coverage,
         llm_judge=llm_judge,
     )

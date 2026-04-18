@@ -66,7 +66,6 @@ bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
 # Eval pipeline (schema validation + fixture comparison + prompt change detection)
 bash scripts/run-eval.sh                      # Results saved to eval_results/<timestamp>.json
-# Eval fixtures live in tests/fixtures/eval/
 
 # Development
 uv run pytest                                 # Run tests

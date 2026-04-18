@@ -286,24 +286,6 @@ class FinalRuleset(BaseModel):
 # --- Eval Framework Schemas ---
 
 
-class EvalMatchResult(BaseModel):
-    """Result of comparing actual vs expected agent output for a single agent."""
-
-    agent_name: str = Field(description="Name of the agent being evaluated")
-    status: Literal["pass", "fail", "partial"] = Field(
-        description="Overall match status",
-    )
-    expected_ids: list[str] = Field(description="IDs expected in the output")
-    actual_ids: list[str] = Field(description="IDs found in the actual output")
-    missing_ids: list[str] = Field(description="Expected IDs not found in actual output")
-    extra_ids: list[str] = Field(description="Actual IDs not in expected output")
-    recall: float = Field(ge=0, le=1, description="Fraction of expected IDs found (0.0 to 1.0)")
-    precision: float = Field(
-        ge=0, le=1, description="Fraction of actual IDs that were expected (0.0 to 1.0)"
-    )
-    score: float = Field(ge=0, le=1, description="F1 score — harmonic mean of recall and precision")
-
-
 class SemanticCoverage(BaseModel):
     """Semantic coverage of discovered patterns against sampled element kinds.
 
@@ -419,28 +401,20 @@ class BaselineComparison(BaseModel):
 
 
 class EvalReport(BaseModel):
-    """Full eval report comparing agent outputs against fixtures."""
+    """Full eval report: semantic coverage + optional LLM judge + baseline diff."""
 
     timestamp: str = Field(description="ISO 8601 timestamp of the eval run")
     prompt_changed: bool = Field(
         default=False,
         description="Whether agent prompts changed since last commit",
     )
-    results: list[EvalMatchResult] = Field(
-        default_factory=list,
-        description="Per-agent comparison results",
-    )
-    overall_pass: bool = Field(description="Whether all agents passed")
     semantic_coverage: SemanticCoverage | None = Field(
         default=None,
         description="Semantic coverage of sample elements by discovered patterns",
     )
     llm_judge: list[LLMJudgeResult] | None = Field(
         default=None,
-        description=(
-            "Optional per-page LLM-as-judge scores. Signal only — does not affect "
-            "overall_pass."
-        ),
+        description="Optional per-page LLM-as-judge scores. Signal only.",
     )
     baseline_comparison: BaselineComparison | None = Field(
         default=None,

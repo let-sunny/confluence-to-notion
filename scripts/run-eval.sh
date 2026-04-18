@@ -40,6 +40,6 @@ echo "--- Validating output schemas ---"
 uv run cli validate-output output/patterns.json discovery
 uv run cli validate-output output/proposals.json proposer
 
-# Step 3: Run comparison against expected fixtures + semantic coverage
-echo "--- Comparing against expected fixtures ---"
-uv run python -m confluence_to_notion.eval output/ tests/fixtures/eval/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
+# Step 3: Semantic coverage + baseline diff (+ optional LLM-as-judge)
+echo "--- Semantic coverage + baseline ---"
+uv run python -m confluence_to_notion.eval output/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
