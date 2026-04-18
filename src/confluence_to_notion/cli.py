@@ -684,14 +684,36 @@ def _prompt_table_rule(
     if not is_db:
         return TableRule(is_database=False)
 
-    title_col = typer.prompt("Title column", default=headers[0])
     # Persisted signatures are lowercased/stripped (normalize_header_signature), so
     # title_column and column_types keys must match that form or TableRuleSet
     # validation rejects the store on the next load and wipes every rule.
-    normalized_title = title_col.strip().lower()
+    normalized_headers = [h.strip().lower() for h in headers]
+    valid_headers = set(normalized_headers)
     normalized_types: dict[str, NotionPropertyType] = {
         k.strip().lower(): v for k, v in column_type_draft.items()
     }
+
+    if _stdin_is_tty():
+        while True:
+            title_col = typer.prompt("Title column", default=headers[0])
+            normalized_title = title_col.strip().lower()
+            if normalized_title in valid_headers:
+                break
+            console.print(
+                f"[yellow]'{title_col}' is not a header. "
+                f"Choose one of: {', '.join(headers)}[/yellow]"
+            )
+    else:
+        title_col = typer.prompt("Title column", default=headers[0])
+        normalized_title = title_col.strip().lower()
+        if normalized_title not in valid_headers:
+            fallback = normalized_headers[0]
+            console.print(
+                f"[yellow]title_col '{title_col}' not in headers; "
+                f"falling back to '{fallback}'[/yellow]"
+            )
+            normalized_title = fallback
+
     return TableRule(
         is_database=True,
         title_column=normalized_title,
