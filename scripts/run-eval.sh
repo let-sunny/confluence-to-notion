@@ -2,16 +2,21 @@
 set -euo pipefail
 
 # Optional flags:
-#   --llm-judge   Opt into the Anthropic-backed LLM-as-judge pass. Default off
-#                 so CI runs incur no API cost.
+#   --llm-judge            Opt into the Anthropic-backed LLM-as-judge pass.
+#                          Default off so CI runs incur no API cost.
+#   --fail-on-regression   Exit non-zero when baseline comparison detects a
+#                          regression. Default warn-only per ADR-004.
 EVAL_FLAGS=()
 for arg in "$@"; do
   case "$arg" in
     --llm-judge)
       EVAL_FLAGS+=("--llm-judge")
       ;;
+    --fail-on-regression)
+      EVAL_FLAGS+=("--fail-on-regression")
+      ;;
     *)
-      echo "ERROR: unknown argument '$arg'. Supported: --llm-judge" >&2
+      echo "ERROR: unknown argument '$arg'. Supported: --llm-judge, --fail-on-regression" >&2
       exit 2
       ;;
   esac

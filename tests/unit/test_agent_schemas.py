@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from confluence_to_notion.agents.schemas import (
+    BaselineComparison,
     ConfluenceSource,
     DevDecision,
     DevImplementLog,
@@ -1110,3 +1111,88 @@ class TestEvalReportLLMJudgeField:
         )
         report = EvalReport.model_validate_json(legacy_json)
         assert report.llm_judge is None
+
+
+# --- BaselineComparison ---
+
+
+class TestBaselineComparison:
+    def test_minimal_instance_no_prior_baseline(self) -> None:
+        cmp = BaselineComparison(
+            previous_timestamp=None,
+            coverage_delta=0.0,
+            llm_judge_mean_delta=None,
+            regressions=[],
+            thresholds_used={"semantic_coverage": 0.05},
+            is_regression=False,
+        )
+        assert cmp.previous_timestamp is None
+        assert cmp.coverage_delta == 0.0
+        assert cmp.llm_judge_mean_delta is None
+        assert cmp.regressions == []
+        assert cmp.thresholds_used == {"semantic_coverage": 0.05}
+        assert cmp.is_regression is False
+
+    def test_instance_with_regression(self) -> None:
+        cmp = BaselineComparison(
+            previous_timestamp="2026-04-17T00-00-00+00_00",
+            coverage_delta=-0.1,
+            llm_judge_mean_delta=-0.4,
+            regressions=["semantic_coverage", "llm_judge"],
+            thresholds_used={"semantic_coverage": 0.05, "llm_judge": 0.3},
+            is_regression=True,
+        )
+        assert cmp.is_regression is True
+        assert "semantic_coverage" in cmp.regressions
+        assert "llm_judge" in cmp.regressions
+        assert cmp.coverage_delta == pytest.approx(-0.1)
+        assert cmp.llm_judge_mean_delta == pytest.approx(-0.4)
+
+    def test_missing_coverage_delta_raises(self) -> None:
+        with pytest.raises(ValidationError, match="coverage_delta"):
+            BaselineComparison(  # type: ignore[call-arg]
+                previous_timestamp=None,
+                llm_judge_mean_delta=None,
+                regressions=[],
+                thresholds_used={"semantic_coverage": 0.05},
+                is_regression=False,
+            )
+
+    def test_json_roundtrip(self) -> None:
+        cmp = BaselineComparison(
+            previous_timestamp="2026-04-17T00-00-00+00_00",
+            coverage_delta=-0.1,
+            llm_judge_mean_delta=None,
+            regressions=["semantic_coverage"],
+            thresholds_used={"semantic_coverage": 0.05, "llm_judge": 0.3},
+            is_regression=True,
+        )
+        parsed = BaselineComparison.model_validate_json(cmp.model_dump_json())
+        assert parsed == cmp
+
+
+class TestEvalReportBaselineComparisonField:
+    def test_baseline_comparison_defaults_to_none(self) -> None:
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+        )
+        assert report.baseline_comparison is None
+
+    def test_baseline_comparison_accepted(self) -> None:
+        cmp = BaselineComparison(
+            previous_timestamp=None,
+            coverage_delta=0.0,
+            llm_judge_mean_delta=None,
+            regressions=[],
+            thresholds_used={"semantic_coverage": 0.05},
+            is_regression=False,
+        )
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+            baseline_comparison=cmp,
+        )
+        assert report.baseline_comparison == cmp

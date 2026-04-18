@@ -389,6 +389,35 @@ class LLMJudgeResult(BaseModel):
         return self
 
 
+class BaselineComparison(BaseModel):
+    """Comparison of the current eval snapshot to the most recent prior snapshot.
+
+    Signal-only per ADR-004 — regressions are reported but do not affect
+    ``EvalReport.overall_pass``. CLI exit-code gating on regressions is opt-in.
+    """
+
+    previous_timestamp: str | None = Field(
+        description="Timestamp of the prior snapshot, or None when this is the first run",
+    )
+    coverage_delta: float = Field(
+        description="current.semantic_coverage.coverage_ratio - previous; 0 when no prior",
+    )
+    llm_judge_mean_delta: float | None = Field(
+        default=None,
+        description="Delta of the llm_judge grand mean; None when either side lacks llm_judge",
+    )
+    regressions: list[str] = Field(
+        default_factory=list,
+        description="Human-readable labels of metrics that crossed their threshold",
+    )
+    thresholds_used: dict[str, float] = Field(
+        description="Thresholds used for regression detection, e.g. {'semantic_coverage': 0.05}",
+    )
+    is_regression: bool = Field(
+        description="True when any metric crossed its threshold",
+    )
+
+
 class EvalReport(BaseModel):
     """Full eval report comparing agent outputs against fixtures."""
 
@@ -412,4 +441,8 @@ class EvalReport(BaseModel):
             "Optional per-page LLM-as-judge scores. Signal only — does not affect "
             "overall_pass."
         ),
+    )
+    baseline_comparison: BaselineComparison | None = Field(
+        default=None,
+        description="Diff vs the most recent prior snapshot; None on first run or if unavailable",
     )
