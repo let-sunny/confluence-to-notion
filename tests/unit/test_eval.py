@@ -14,6 +14,7 @@ from confluence_to_notion.agents.schemas import (
     EvalReport,
     ProposedRule,
     ProposerOutput,
+    SemanticCoverage,
 )
 from confluence_to_notion.eval.comparator import (
     compare_discovery,
@@ -453,3 +454,171 @@ class TestRunEval:
         output_dir = self._setup_output_dir(tmp_path)
         report = run_eval(output_dir, FIXTURE_DIR)
         assert report.semantic_coverage is None
+
+
+# --- CLI baseline diff + opt-in regression gating ---
+
+
+def _cli_eval_match_result() -> EvalMatchResult:
+    return EvalMatchResult(
+        agent_name="pattern-discovery",
+        status="pass",
+        expected_ids=["a"],
+        actual_ids=["a"],
+        missing_ids=[],
+        extra_ids=[],
+        recall=1.0,
+        precision=1.0,
+        score=1.0,
+    )
+
+
+def _cli_coverage(ratio: float) -> SemanticCoverage:
+    sample = ["macro:info", "macro:toc"]
+    covered_count = round(ratio * len(sample))
+    return SemanticCoverage(
+        pages_analyzed=1,
+        sample_elements=sample,
+        covered_elements=sample[:covered_count],
+        coverage_ratio=covered_count / len(sample),
+    )
+
+
+def _cli_report(timestamp: str, coverage_ratio: float) -> EvalReport:
+    return EvalReport(
+        timestamp=timestamp,
+        prompt_changed=False,
+        results=[_cli_eval_match_result()],
+        overall_pass=True,
+        semantic_coverage=_cli_coverage(coverage_ratio),
+    )
+
+
+def _write_baseline_snapshot(results_dir: Path, report: EvalReport) -> None:
+    results_dir.mkdir(parents=True, exist_ok=True)
+    filename = report.timestamp.replace(":", "-").replace("+", "_") + ".json"
+    (results_dir / filename).write_text(report.model_dump_json(indent=2))
+
+
+class TestEvalCliBaselineGating:
+    """main() should attach baseline_comparison and honor --fail-on-regression."""
+
+    @staticmethod
+    def _argv(output_dir: Path, fixture_dir: Path, results_dir: Path,
+              *flags: str) -> list[str]:
+        return [
+            "confluence_to_notion.eval",
+            str(output_dir),
+            str(fixture_dir),
+            str(results_dir),
+            *flags,
+        ]
+
+    def test_first_run_no_prior_baseline_exits_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_dir = tmp_path / "output"
+        fixture_dir = tmp_path / "fixtures"
+        results_dir = tmp_path / "results"
+        output_dir.mkdir()
+
+        current = _cli_report("2026-04-18T00:00:00+00:00", coverage_ratio=0.5)
+
+        from confluence_to_notion.eval import __main__ as cli
+
+        monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
+        monkeypatch.setattr(
+            "sys.argv",
+            self._argv(output_dir, fixture_dir, results_dir),
+        )
+        cli.main()  # must not raise SystemExit(1)
+
+        written = list(results_dir.glob("*.json"))
+        assert len(written) == 1
+        saved = EvalReport.model_validate_json(written[0].read_text())
+        assert saved.baseline_comparison is not None
+        assert saved.baseline_comparison.previous_timestamp is None
+        assert saved.baseline_comparison.is_regression is False
+
+    def test_regression_without_fail_flag_exits_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_dir = tmp_path / "output"
+        fixture_dir = tmp_path / "fixtures"
+        results_dir = tmp_path / "results"
+        output_dir.mkdir()
+
+        baseline = _cli_report("2026-04-17T00:00:00+00:00", coverage_ratio=1.0)
+        _write_baseline_snapshot(results_dir, baseline)
+
+        # Drop coverage from 1.0 to 0.5 — regression beyond default threshold.
+        current = _cli_report("2026-04-18T00:00:00+00:00", coverage_ratio=0.5)
+
+        from confluence_to_notion.eval import __main__ as cli
+
+        monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
+        monkeypatch.setattr(
+            "sys.argv",
+            self._argv(output_dir, fixture_dir, results_dir),
+        )
+        cli.main()  # no SystemExit(1) expected
+
+        current_file = results_dir / "2026-04-18T00-00-00_00-00.json"
+        assert current_file.exists()
+        saved = EvalReport.model_validate_json(current_file.read_text())
+        assert saved.baseline_comparison is not None
+        assert saved.baseline_comparison.is_regression is True
+        assert "semantic_coverage" in saved.baseline_comparison.regressions
+
+    def test_regression_with_fail_flag_exits_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_dir = tmp_path / "output"
+        fixture_dir = tmp_path / "fixtures"
+        results_dir = tmp_path / "results"
+        output_dir.mkdir()
+
+        baseline = _cli_report("2026-04-17T00:00:00+00:00", coverage_ratio=1.0)
+        _write_baseline_snapshot(results_dir, baseline)
+
+        current = _cli_report("2026-04-18T00:00:00+00:00", coverage_ratio=0.5)
+
+        from confluence_to_notion.eval import __main__ as cli
+
+        monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
+        monkeypatch.setattr(
+            "sys.argv",
+            self._argv(output_dir, fixture_dir, results_dir, "--fail-on-regression"),
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cli.main()
+        assert exc_info.value.code == 1
+
+        current_file = results_dir / "2026-04-18T00-00-00_00-00.json"
+        assert current_file.exists()
+
+    def test_baseline_excludes_just_written_snapshot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_latest_baseline must fire BEFORE the current snapshot is written."""
+        output_dir = tmp_path / "output"
+        fixture_dir = tmp_path / "fixtures"
+        results_dir = tmp_path / "results"
+        output_dir.mkdir()
+
+        current = _cli_report("2026-04-18T00:00:00+00:00", coverage_ratio=0.5)
+
+        from confluence_to_notion.eval import __main__ as cli
+
+        monkeypatch.setattr(cli, "run_eval", lambda *a, **kw: current)
+        monkeypatch.setattr(
+            "sys.argv",
+            self._argv(output_dir, fixture_dir, results_dir),
+        )
+        cli.main()
+
+        current_file = results_dir / "2026-04-18T00-00-00_00-00.json"
+        saved = EvalReport.model_validate_json(current_file.read_text())
+        assert saved.baseline_comparison is not None
+        # previous_timestamp must be None — current must not be its own baseline.
+        assert saved.baseline_comparison.previous_timestamp is None
