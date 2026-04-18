@@ -19,6 +19,6 @@ echo "--- Validating output schemas ---"
 uv run cli validate-output output/patterns.json discovery
 uv run cli validate-output output/proposals.json proposer
 
-# Step 3: Run comparison against expected fixtures
+# Step 3: Run comparison against expected fixtures + semantic coverage
 echo "--- Comparing against expected fixtures ---"
-uv run python -m confluence_to_notion.eval output/ tests/fixtures/eval/ eval_results/
+uv run python -m confluence_to_notion.eval output/ tests/fixtures/eval/ eval_results/ samples/

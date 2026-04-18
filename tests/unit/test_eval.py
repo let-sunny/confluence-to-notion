@@ -397,6 +397,19 @@ class TestRunEval:
         )
         return output_dir
 
+    @staticmethod
+    def _setup_samples_dir(tmp_path: Path) -> Path:
+        samples_dir = tmp_path / "samples"
+        samples_dir.mkdir()
+        # Use a macro the eval fixture's patterns actually cover (macro:toc),
+        # plus one it doesn't (macro:unknown) so coverage is strictly < 1.
+        (samples_dir / "p1.xhtml").write_text(
+            '<ac:structured-macro ac:name="toc"/>'
+            '<ac:structured-macro ac:name="unknown-thing"/>',
+            encoding="utf-8",
+        )
+        return samples_dir
+
     @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
     def test_run_eval_perfect_match(self, mock_detect: Any, tmp_path: Path) -> None:
         """When actual == expected, all agents pass."""
@@ -416,3 +429,27 @@ class TestRunEval:
     def test_run_eval_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             run_eval(tmp_path, FIXTURE_DIR)
+
+    @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
+    def test_run_eval_populates_semantic_coverage_when_samples_given(
+        self, mock_detect: Any, tmp_path: Path
+    ) -> None:
+        output_dir = self._setup_output_dir(tmp_path)
+        samples_dir = self._setup_samples_dir(tmp_path)
+        report = run_eval(output_dir, FIXTURE_DIR, samples_dir=samples_dir)
+        assert report.semantic_coverage is not None
+        assert report.semantic_coverage.pages_analyzed == 1
+        assert "macro:toc" in report.semantic_coverage.sample_elements
+        assert "macro:unknown-thing" in report.semantic_coverage.sample_elements
+        # patterns.json covers macro:toc but not macro:unknown-thing.
+        assert "macro:toc" in report.semantic_coverage.covered_elements
+        assert "macro:unknown-thing" not in report.semantic_coverage.covered_elements
+        assert report.semantic_coverage.coverage_ratio == pytest.approx(0.5)
+
+    @patch("confluence_to_notion.eval.comparator.detect_prompt_changes", return_value=False)
+    def test_run_eval_without_samples_leaves_coverage_none(
+        self, mock_detect: Any, tmp_path: Path
+    ) -> None:
+        output_dir = self._setup_output_dir(tmp_path)
+        report = run_eval(output_dir, FIXTURE_DIR)
+        assert report.semantic_coverage is None

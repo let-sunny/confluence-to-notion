@@ -1,6 +1,8 @@
 """CLI entry point for the eval framework.
 
-Usage: uv run python -m confluence_to_notion.eval <output_dir> <fixture_dir> <results_dir>
+Usage:
+    uv run python -m confluence_to_notion.eval \
+        <output_dir> <fixture_dir> <results_dir> [<samples_dir>]
 """
 
 import sys
@@ -16,18 +18,19 @@ console = Console()
 
 def main() -> None:
     """Run eval and save results."""
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5):
         console.print(
             "[red]Usage: python -m confluence_to_notion.eval"
-            " <output_dir> <fixture_dir> <results_dir>[/red]"
+            " <output_dir> <fixture_dir> <results_dir> [<samples_dir>][/red]"
         )
         sys.exit(1)
 
     output_dir = Path(sys.argv[1])
     fixture_dir = Path(sys.argv[2])
     results_dir = Path(sys.argv[3])
+    samples_dir = Path(sys.argv[4]) if len(sys.argv) == 5 else None
 
-    report = run_eval(output_dir, fixture_dir)
+    report = run_eval(output_dir, fixture_dir, samples_dir=samples_dir)
 
     # Save results
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -58,6 +61,14 @@ def main() -> None:
         )
 
     console.print(table)
+
+    if report.semantic_coverage is not None:
+        cov = report.semantic_coverage
+        console.print(
+            f"[cyan]Semantic coverage:[/cyan] {cov.coverage_ratio:.1%}"
+            f" ({len(cov.covered_elements)}/{len(cov.sample_elements)} element kinds)"
+            f" across {cov.pages_analyzed} pages"
+        )
 
     if report.prompt_changed:
         console.print("[yellow]⚠ Agent prompts changed since last commit[/yellow]")

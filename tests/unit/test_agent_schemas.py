@@ -15,12 +15,15 @@ from confluence_to_notion.agents.schemas import (
     DevTask,
     DiscoveryOutput,
     DiscoveryPattern,
+    EvalMatchResult,
+    EvalReport,
     FinalRule,
     FinalRuleset,
     PipelineState,
     ProposedRule,
     ProposerOutput,
     ScoutOutput,
+    SemanticCoverage,
 )
 
 # --- DiscoveryPattern ---
@@ -832,3 +835,132 @@ class TestScoutOutput:
         assert parsed == output
         assert parsed.sources[0].fetched_at == "2026-04-16T12:00:00Z"
         assert parsed.sources[1].fetched_at is None
+
+
+# --- SemanticCoverage ---
+
+
+def _make_eval_match_result(agent_name: str = "pattern-discovery") -> EvalMatchResult:
+    return EvalMatchResult(
+        agent_name=agent_name,
+        status="pass",
+        expected_ids=["a"],
+        actual_ids=["a"],
+        missing_ids=[],
+        extra_ids=[],
+        recall=1.0,
+        precision=1.0,
+        score=1.0,
+    )
+
+
+class TestSemanticCoverage:
+    def test_normal_case(self) -> None:
+        cov = SemanticCoverage(
+            pages_analyzed=3,
+            sample_elements=["macro:info", "macro:toc", "element:table"],
+            covered_elements=["macro:info", "macro:toc"],
+            coverage_ratio=2 / 3,
+        )
+        assert cov.pages_analyzed == 3
+        assert cov.coverage_ratio == pytest.approx(2 / 3)
+
+    def test_full_coverage(self) -> None:
+        cov = SemanticCoverage(
+            pages_analyzed=1,
+            sample_elements=["macro:toc"],
+            covered_elements=["macro:toc"],
+            coverage_ratio=1.0,
+        )
+        assert cov.coverage_ratio == 1.0
+
+    def test_empty_sample_elements_gives_ratio_one(self) -> None:
+        cov = SemanticCoverage(
+            pages_analyzed=1,
+            sample_elements=[],
+            covered_elements=[],
+            coverage_ratio=1.0,
+        )
+        assert cov.coverage_ratio == 1.0
+
+    def test_covered_must_be_subset_of_sample(self) -> None:
+        with pytest.raises(ValidationError, match="covered_elements"):
+            SemanticCoverage(
+                pages_analyzed=1,
+                sample_elements=["macro:info"],
+                covered_elements=["macro:info", "macro:code"],
+                coverage_ratio=1.0,
+            )
+
+    def test_coverage_ratio_must_match_derived(self) -> None:
+        with pytest.raises(ValidationError, match="coverage_ratio"):
+            SemanticCoverage(
+                pages_analyzed=1,
+                sample_elements=["macro:info", "macro:code"],
+                covered_elements=["macro:info"],
+                coverage_ratio=0.9,
+            )
+
+    def test_pages_analyzed_must_be_positive(self) -> None:
+        with pytest.raises(ValidationError, match="pages_analyzed"):
+            SemanticCoverage(
+                pages_analyzed=0,
+                sample_elements=[],
+                covered_elements=[],
+                coverage_ratio=1.0,
+            )
+
+    def test_coverage_ratio_bounds(self) -> None:
+        with pytest.raises(ValidationError, match="coverage_ratio"):
+            SemanticCoverage(
+                pages_analyzed=1,
+                sample_elements=[],
+                covered_elements=[],
+                coverage_ratio=1.5,
+            )
+
+    def test_json_roundtrip(self) -> None:
+        cov = SemanticCoverage(
+            pages_analyzed=5,
+            sample_elements=["macro:info", "element:table"],
+            covered_elements=["macro:info"],
+            coverage_ratio=0.5,
+        )
+        json_str = cov.model_dump_json(indent=2)
+        parsed = SemanticCoverage.model_validate_json(json_str)
+        assert parsed == cov
+
+
+class TestEvalReportSemanticCoverageField:
+    def test_semantic_coverage_defaults_to_none(self) -> None:
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+        )
+        assert report.semantic_coverage is None
+
+    def test_semantic_coverage_accepted(self) -> None:
+        cov = SemanticCoverage(
+            pages_analyzed=2,
+            sample_elements=["macro:info"],
+            covered_elements=["macro:info"],
+            coverage_ratio=1.0,
+        )
+        report = EvalReport(
+            timestamp="2026-04-18T00:00:00Z",
+            results=[_make_eval_match_result()],
+            overall_pass=True,
+            semantic_coverage=cov,
+        )
+        assert report.semantic_coverage == cov
+
+    def test_legacy_report_json_still_parses(self) -> None:
+        legacy_json = (
+            '{"timestamp": "2026-04-18T00:00:00Z",'
+            ' "prompt_changed": false,'
+            ' "results": [],'
+            ' "overall_pass": true}'
+        )
+        report = EvalReport.model_validate_json(legacy_json)
+        assert report.semantic_coverage is None

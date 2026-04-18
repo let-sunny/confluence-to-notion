@@ -6,7 +6,7 @@ JSON files that must validate against these models.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # --- Development Pipeline Schemas ---
 
@@ -304,6 +304,48 @@ class EvalMatchResult(BaseModel):
     score: float = Field(ge=0, le=1, description="F1 score — harmonic mean of recall and precision")
 
 
+class SemanticCoverage(BaseModel):
+    """Semantic coverage of discovered patterns against sampled element kinds.
+
+    Complements the fixture-based rule_id match: instead of asking "did we find
+    the same IDs as the fixture", it asks "of the macros/elements that actually
+    appear in the samples, how many are documented by at least one pattern?"
+    """
+
+    pages_analyzed: int = Field(
+        gt=0,
+        description="Number of sample pages the element enumeration walked",
+    )
+    sample_elements: list[str] = Field(
+        description="Normalized element keys enumerated from samples (e.g. 'macro:info')",
+    )
+    covered_elements: list[str] = Field(
+        description="Subset of sample_elements covered by at least one pattern",
+    )
+    coverage_ratio: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="|covered ∩ sample| / |sample|; 1.0 when sample is empty",
+    )
+
+    @model_validator(mode="after")
+    def _validate_derived_fields(self) -> "SemanticCoverage":
+        sample = set(self.sample_elements)
+        covered = set(self.covered_elements)
+        extra = covered - sample
+        if extra:
+            raise ValueError(
+                f"covered_elements must be a subset of sample_elements; extras: {sorted(extra)}"
+            )
+        expected_ratio = len(covered) / len(sample) if sample else 1.0
+        if abs(expected_ratio - self.coverage_ratio) > 1e-9:
+            raise ValueError(
+                f"coverage_ratio {self.coverage_ratio} does not match derived value"
+                f" {expected_ratio} from sample/covered sets"
+            )
+        return self
+
+
 class EvalReport(BaseModel):
     """Full eval report comparing agent outputs against fixtures."""
 
@@ -317,3 +359,7 @@ class EvalReport(BaseModel):
         description="Per-agent comparison results",
     )
     overall_pass: bool = Field(description="Whether all agents passed")
+    semantic_coverage: SemanticCoverage | None = Field(
+        default=None,
+        description="Semantic coverage of sample elements by discovered patterns",
+    )
