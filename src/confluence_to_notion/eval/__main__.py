@@ -2,13 +2,12 @@
 
 Usage:
     uv run python -m confluence_to_notion.eval \
-        <output_dir> <fixture_dir> <results_dir> [<samples_dir>] \
+        <output_dir> <results_dir> [<samples_dir>] \
         [--llm-judge] [--fail-on-regression]
 
 The optional ``--llm-judge`` flag opts into the LLM-as-judge pass that scores
 each converted page across the 4 quality dimensions. Results attach to
-``EvalReport.llm_judge`` and are signal only (per ADR-004) — they do not flip
-the overall pass/fail exit code. Default runs do not call Anthropic.
+``EvalReport.llm_judge`` and are signal only (per ADR-004).
 
 ``--fail-on-regression`` makes the CLI exit 1 when the baseline diff flags a
 regression. Default is warn-only, matching ADR-004's signal-only posture.
@@ -18,7 +17,6 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
-from rich.table import Table
 
 from confluence_to_notion.agents.schemas import BaselineComparison
 from confluence_to_notion.eval.baseline import (
@@ -43,24 +41,23 @@ def main() -> None:
     known_flags = {LLM_JUDGE_FLAG, FAIL_ON_REGRESSION_FLAG}
     positional = [a for a in args if a not in known_flags]
 
-    if len(positional) not in (3, 4):
+    if len(positional) not in (2, 3):
         console.print(
             "[red]Usage: python -m confluence_to_notion.eval"
-            " <output_dir> <fixture_dir> <results_dir> [<samples_dir>]"
+            " <output_dir> <results_dir> [<samples_dir>]"
             " [--llm-judge] [--fail-on-regression][/red]"
         )
         sys.exit(1)
 
     output_dir = Path(positional[0])
-    fixture_dir = Path(positional[1])
-    results_dir = Path(positional[2])
-    samples_dir = Path(positional[3]) if len(positional) == 4 else None
+    results_dir = Path(positional[1])
+    samples_dir = Path(positional[2]) if len(positional) == 3 else None
 
     # Load baseline BEFORE running/writing the current snapshot so the current
     # run is never picked as its own baseline.
     previous = load_latest_baseline(results_dir)
 
-    report = run_eval(output_dir, fixture_dir, samples_dir=samples_dir)
+    report = run_eval(output_dir, samples_dir=samples_dir)
 
     if llm_judge_enabled:
         if samples_dir is None:
@@ -84,30 +81,6 @@ def main() -> None:
     result_file = results_dir / f"{timestamp_safe}.json"
     result_file.write_text(report.model_dump_json(indent=2))
 
-    # Print summary table
-    table = Table(title="Eval Results")
-    table.add_column("Agent", style="cyan")
-    table.add_column("Status", style="bold")
-    table.add_column("Recall", justify="right")
-    table.add_column("Precision", justify="right")
-    table.add_column("F1", justify="right")
-    table.add_column("Missing", justify="right")
-    table.add_column("Extra", justify="right")
-
-    for r in report.results:
-        status_style = {"pass": "green", "partial": "yellow", "fail": "red"}[r.status]
-        table.add_row(
-            r.agent_name,
-            f"[{status_style}]{r.status}[/{status_style}]",
-            f"{r.recall:.1%}",
-            f"{r.precision:.1%}",
-            f"{r.score:.1%}",
-            str(len(r.missing_ids)),
-            str(len(r.extra_ids)),
-        )
-
-    console.print(table)
-
     if report.semantic_coverage is not None:
         cov = report.semantic_coverage
         console.print(
@@ -125,12 +98,6 @@ def main() -> None:
     if report.prompt_changed:
         console.print("[yellow]⚠ Agent prompts changed since last commit[/yellow]")
 
-    if report.overall_pass:
-        console.print("[green]✓ All agents passed[/green]")
-    else:
-        console.print("[red]✗ Some agents failed — check missing/extra IDs above[/red]")
-        sys.exit(1)
-
     if fail_on_regression and report.baseline_comparison is not None and (
         report.baseline_comparison.is_regression
     ):
@@ -143,6 +110,8 @@ def main() -> None:
 
 def _print_llm_judge_table(judge_results: list) -> None:  # type: ignore[type-arg]
     """Render per-page LLM-as-judge scores. Signal only — never affects exit code."""
+    from rich.table import Table
+
     if not judge_results:
         console.print("[yellow]LLM judge: no paired pages were scored[/yellow]")
         return

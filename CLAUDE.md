@@ -64,9 +64,8 @@ bash scripts/discover.sh samples/ --from 3    # Resume from step 3 (finalize + c
 bash scripts/develop.sh <issue-number>              # Run full pipeline
 bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
-# Eval pipeline (schema validation + fixture comparison + prompt change detection)
+# Eval pipeline (schema validation + semantic coverage + baseline diff + prompt change detection)
 bash scripts/run-eval.sh                      # Results saved to eval_results/<timestamp>.json
-# Eval fixtures live in tests/fixtures/eval/
 
 # Development
 uv run pytest                                 # Run tests

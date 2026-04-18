@@ -16,7 +16,6 @@ from confluence_to_notion.agents.schemas import (
     DevTask,
     DiscoveryOutput,
     DiscoveryPattern,
-    EvalMatchResult,
     EvalReport,
     FinalRule,
     FinalRuleset,
@@ -842,20 +841,6 @@ class TestScoutOutput:
 # --- SemanticCoverage ---
 
 
-def _make_eval_match_result(agent_name: str = "pattern-discovery") -> EvalMatchResult:
-    return EvalMatchResult(
-        agent_name=agent_name,
-        status="pass",
-        expected_ids=["a"],
-        actual_ids=["a"],
-        missing_ids=[],
-        extra_ids=[],
-        recall=1.0,
-        precision=1.0,
-        score=1.0,
-    )
-
-
 class TestSemanticCoverage:
     def test_normal_case(self) -> None:
         cov = SemanticCoverage(
@@ -935,11 +920,7 @@ class TestSemanticCoverage:
 
 class TestEvalReportSemanticCoverageField:
     def test_semantic_coverage_defaults_to_none(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
-        )
+        report = EvalReport(timestamp="2026-04-18T00:00:00Z")
         assert report.semantic_coverage is None
 
     def test_semantic_coverage_accepted(self) -> None:
@@ -951,21 +932,9 @@ class TestEvalReportSemanticCoverageField:
         )
         report = EvalReport(
             timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
             semantic_coverage=cov,
         )
         assert report.semantic_coverage == cov
-
-    def test_legacy_report_json_still_parses(self) -> None:
-        legacy_json = (
-            '{"timestamp": "2026-04-18T00:00:00Z",'
-            ' "prompt_changed": false,'
-            ' "results": [],'
-            ' "overall_pass": true}'
-        )
-        report = EvalReport.model_validate_json(legacy_json)
-        assert report.semantic_coverage is None
 
 
 # --- LLMJudgeResult ---
@@ -1079,11 +1048,7 @@ class TestLLMJudgeResult:
 
 class TestEvalReportLLMJudgeField:
     def test_llm_judge_defaults_to_none(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
-        )
+        report = EvalReport(timestamp="2026-04-18T00:00:00Z")
         assert report.llm_judge is None
 
     def test_llm_judge_accepts_list(self) -> None:
@@ -1096,21 +1061,9 @@ class TestEvalReportLLMJudgeField:
         )
         report = EvalReport(
             timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
             llm_judge=[judge],
         )
         assert report.llm_judge == [judge]
-
-    def test_legacy_report_without_llm_judge_still_parses(self) -> None:
-        legacy_json = (
-            '{"timestamp": "2026-04-18T00:00:00Z",'
-            ' "prompt_changed": false,'
-            ' "results": [],'
-            ' "overall_pass": true}'
-        )
-        report = EvalReport.model_validate_json(legacy_json)
-        assert report.llm_judge is None
 
 
 # --- BaselineComparison ---
@@ -1173,11 +1126,7 @@ class TestBaselineComparison:
 
 class TestEvalReportBaselineComparisonField:
     def test_baseline_comparison_defaults_to_none(self) -> None:
-        report = EvalReport(
-            timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
-        )
+        report = EvalReport(timestamp="2026-04-18T00:00:00Z")
         assert report.baseline_comparison is None
 
     def test_baseline_comparison_accepted(self) -> None:
@@ -1191,8 +1140,6 @@ class TestEvalReportBaselineComparisonField:
         )
         report = EvalReport(
             timestamp="2026-04-18T00:00:00Z",
-            results=[_make_eval_match_result()],
-            overall_pass=True,
             baseline_comparison=cmp,
         )
         assert report.baseline_comparison == cmp
