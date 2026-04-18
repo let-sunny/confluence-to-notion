@@ -401,6 +401,151 @@ class TestAppendBlocks:
         assert mock_append.call_count == 2
 
 
+# --- create_database tests ---
+
+
+class TestCreateDatabase:
+    """Verify NotionClientWrapper.create_database payload, mapping, and retry."""
+
+    @staticmethod
+    def _mock_response(database_id: str = "db-new-id") -> dict[str, Any]:
+        return {"id": database_id, "object": "database"}
+
+    async def test_payload_shape_and_returns_database_id(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """parent={'page_id'}, title as rich_text, properties built from column_types."""
+        mock_create = AsyncMock(return_value=self._mock_response("db-123"))
+        with patch.object(notion_client._client.databases, "create", mock_create):
+            db_id = await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="My DB",
+                title_column="name",
+                column_types={"name": "title", "role": "select"},
+            )
+        assert db_id == "db-123"
+        mock_create.assert_called_once()
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["parent"] == {"page_id": "parent-xyz"}
+        assert kwargs["title"] == [{"type": "text", "text": {"content": "My DB"}}]
+        # title_column ('name') becomes the title property; others become their declared type.
+        properties = kwargs["properties"]
+        assert properties == {
+            "name": {"title": {}},
+            "role": {"select": {}},
+        }
+
+    async def test_maps_every_supported_property_type(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """Each NotionPropertyType (plus 'url') maps to {<type>: {}}."""
+        mock_create = AsyncMock(return_value=self._mock_response())
+        with patch.object(notion_client._client.databases, "create", mock_create):
+            await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="All Types",
+                title_column="name",
+                column_types={
+                    "name": "title",
+                    "notes": "rich_text",
+                    "status": "select",
+                    "due": "date",
+                    "owner": "people",
+                    "link": "url",
+                },
+            )
+        properties = mock_create.call_args.kwargs["properties"]
+        assert properties == {
+            "name": {"title": {}},
+            "notes": {"rich_text": {}},
+            "status": {"select": {}},
+            "due": {"date": {}},
+            "owner": {"people": {}},
+            "link": {"url": {}},
+        }
+
+    async def test_title_column_overrides_declared_type(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """The caller-supplied title_column wins over its column_types entry."""
+        mock_create = AsyncMock(return_value=self._mock_response())
+        with patch.object(notion_client._client.databases, "create", mock_create):
+            await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="Override Title",
+                title_column="name",
+                # Even if 'name' is declared as rich_text, it must be emitted as title.
+                column_types={"name": "rich_text", "role": "select"},
+            )
+        properties = mock_create.call_args.kwargs["properties"]
+        assert properties["name"] == {"title": {}}
+        assert properties["role"] == {"select": {}}
+        # Exactly one title property.
+        title_props = [k for k, v in properties.items() if "title" in v]
+        assert title_props == ["name"]
+
+    async def test_retries_on_429_then_succeeds(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """One 429 followed by success → single retry, no re-raise."""
+        rate_limit_error = _make_api_error(429, "Rate limited")
+        rate_limit_error.status = 429
+        mock_create = AsyncMock(
+            side_effect=[rate_limit_error, self._mock_response("db-after-retry")]
+        )
+        with (
+            patch.object(notion_client._client.databases, "create", mock_create),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            db_id = await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="Retry DB",
+                title_column="name",
+                column_types={"name": "title"},
+            )
+        assert db_id == "db-after-retry"
+        assert mock_create.call_count == 2
+
+    async def test_raises_after_max_retries_on_persistent_429(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """Persistent 429 → raises APIResponseError after max retries."""
+        rate_limit_error = _make_api_error(429, "Rate limited")
+        rate_limit_error.status = 429
+        mock_create = AsyncMock(side_effect=rate_limit_error)
+        with (
+            patch.object(notion_client._client.databases, "create", mock_create),
+            patch("confluence_to_notion.notion.client.asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(APIResponseError),
+        ):
+            await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="Max Retry DB",
+                title_column="name",
+                column_types={"name": "title"},
+            )
+        assert mock_create.call_count == 6
+
+    async def test_no_retry_on_non_429(
+        self, notion_client: NotionClientWrapper
+    ) -> None:
+        """Non-429 errors are raised immediately."""
+        auth_error = _make_api_error(401, "Unauthorized")
+        auth_error.status = 401
+        mock_create = AsyncMock(side_effect=auth_error)
+        with (
+            patch.object(notion_client._client.databases, "create", mock_create),
+            pytest.raises(APIResponseError),
+        ):
+            await notion_client.create_database(
+                parent_id="parent-xyz",
+                title="No Retry DB",
+                title_column="name",
+                column_types={"name": "title"},
+            )
+        assert mock_create.call_count == 1
+
+
 async def test_create_page_tree_builds_hierarchy(
     notion_client: NotionClientWrapper,
 ) -> None:

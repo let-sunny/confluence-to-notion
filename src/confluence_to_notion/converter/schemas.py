@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-NotionPropertyType = Literal["title", "rich_text", "select", "date", "people"]
+NotionPropertyType = Literal["title", "rich_text", "select", "date", "people", "url"]
 
 
 class ResolutionEntry(BaseModel):

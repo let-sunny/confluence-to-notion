@@ -9,6 +9,7 @@ from notion_client import APIResponseError, AsyncClient
 
 from confluence_to_notion.config import Settings
 from confluence_to_notion.confluence.schemas import PageTreeNode
+from confluence_to_notion.converter.schemas import NotionPropertyType
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,50 @@ class NotionClientWrapper:
             child_mapping = await self.create_page_tree(new_page_id, child)
             mapping.update(child_mapping)
         return mapping
+
+    async def create_database(
+        self,
+        parent_id: str,
+        title: str,
+        title_column: str,
+        column_types: dict[str, NotionPropertyType],
+    ) -> str:
+        """Create a Notion database under ``parent_id`` and return its database id.
+
+        ``title_column`` is forced to the ``title`` Notion property type even if
+        ``column_types`` declares a different type for it. All other columns map to
+        ``{<type>: {}}``. Inherits the same 429 + exponential-backoff retry shape
+        as ``_create_page_with_retry``.
+        """
+        properties: dict[str, dict[str, dict[str, Any]]] = {}
+        for column, prop_type in column_types.items():
+            effective = "title" if column == title_column else prop_type
+            properties[column] = {effective: {}}
+
+        last_error: APIResponseError | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp: Any = await self._client.databases.create(
+                    parent={"page_id": parent_id},
+                    title=[{"type": "text", "text": {"content": title}}],
+                    properties=properties,
+                )
+                return str(resp["id"])
+            except APIResponseError as e:
+                if e.status != 429 or attempt == MAX_RETRIES:
+                    raise
+                last_error = e
+                delay = BASE_DELAY * (2**attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "Notion rate limited (429) on database create, retry %d/%d in %.1fs",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
+        assert last_error is not None  # unreachable, satisfies mypy
+        raise last_error
 
     async def _create_page_with_retry(
         self, parent_id: str, title: str, children: list[dict[str, Any]]

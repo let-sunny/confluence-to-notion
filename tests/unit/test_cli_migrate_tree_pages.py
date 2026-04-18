@@ -119,6 +119,7 @@ def _build_notion_mock() -> Any:
 
     mock.create_subpage = AsyncMock(side_effect=_create_subpage)
     mock.append_blocks = AsyncMock(return_value=None)
+    mock.create_database = AsyncMock(return_value="db-default")
     return mock
 
 
@@ -745,6 +746,279 @@ def test_migrate_tree_pages_notion_api_error_on_body_upload(
 
     assert result.exit_code != 0
     assert "Notion" in result.output or "API" in result.output
+
+
+# --- Pass 1.5: Notion database creation for is_database=True signatures ---
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_creates_notion_db_once_per_is_database_signature(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two pages share the same is_database=True signature → create_database called once;
+    each affected table gets a resolution entry; Pass 2 emits child_database blocks."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(
+        id="root",
+        title="Root Page",
+        children=[
+            PageTreeNode(id="c1", title="Child 1"),
+            PageTreeNode(id="c2", title="Child 2"),
+        ],
+    )
+    body_a = _table_xhtml(["Name", "Role"], [["Alice", "Dev"], ["Bob", "PM"]])
+    body_b = _table_xhtml(["Name", "Role"], [["Carol", "QA"], ["Dan", "PM"]])
+    bodies = {"root": "<p/>", "c1": body_a, "c2": body_b}
+
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, bodies)
+    notion_mock = _build_notion_mock()
+    notion_mock.create_database = AsyncMock(return_value="db-shared-123")
+    mock_notion_cls.return_value = notion_mock
+
+    mock_prompt.return_value = TableRule(
+        is_database=True,
+        title_column="name",
+        column_types={"name": "title", "role": "select"},
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    table_rules_path = tmp_path / "table-rules.json"
+    resolution_path = tmp_path / "resolution.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(resolution_path),
+            "--table-rules",
+            str(table_rules_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    # (a) create_database invoked exactly once for the shared signature.
+    assert notion_mock.create_database.await_count == 1
+    db_call = notion_mock.create_database.await_args_list[0]
+    db_kwargs = db_call.kwargs
+    # The DB lives under the page where the signature was first observed (c1, → np-c1).
+    assert db_kwargs.get("parent_id", db_call.args[0] if db_call.args else None) == "np-c1"
+    assert db_kwargs["title_column"] == "name"
+    assert db_kwargs["column_types"] == {"name": "title", "role": "select"}
+
+    # (b) Resolution store carries database_id entries for the affected tables.
+    res_store = ResolutionStore(resolution_path)
+    table_entries = [
+        (k, v) for k, v in res_store.data.entries.items() if k.startswith("table:")
+    ]
+    assert table_entries, "expected at least one table:* entry"
+    for _key, entry in table_entries:
+        assert entry.value == {"database_id": "db-shared-123"}
+
+    # (c) Pass 2 output for c1/c2 is a child_database referencing db-shared-123,
+    # never a layout table block.
+    blocks_per_page: dict[str, list[dict[str, Any]]] = {}
+    for call in notion_mock.append_blocks.await_args_list:
+        page_id = call.kwargs.get(
+            "page_id", call.args[0] if call.args else None
+        )
+        blocks = call.kwargs.get(
+            "blocks", call.args[1] if len(call.args) > 1 else []
+        )
+        blocks_per_page[page_id] = blocks
+
+    for np_id in ("np-c1", "np-c2"):
+        blocks = blocks_per_page[np_id]
+        child_db_blocks = [b for b in blocks if b.get("type") == "child_database"]
+        assert len(child_db_blocks) == 1, f"page {np_id} blocks={blocks}"
+        assert child_db_blocks[0]["child_database"] == {"database_id": "db-shared-123"}
+        assert not any(b.get("type") == "table" for b in blocks)
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_layout_signature_keeps_table_block_and_no_db_create(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """is_database=False → no create_database, page keeps layout table block."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, {"root": body})
+    notion_mock = _build_notion_mock()
+    notion_mock.create_database = AsyncMock(return_value="db-should-not-be-used")
+    mock_notion_cls.return_value = notion_mock
+
+    mock_prompt.return_value = TableRule(is_database=False)
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(tmp_path / "table-rules.json"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    notion_mock.create_database.assert_not_awaited()
+    # Page got a real table block (not child_database).
+    blocks = notion_mock.append_blocks.await_args_list[0].kwargs.get(
+        "blocks", notion_mock.append_blocks.await_args_list[0].args[1]
+    )
+    table_blocks = [b for b in blocks if b.get("type") == "table"]
+    child_db_blocks = [b for b in blocks if b.get("type") == "child_database"]
+    assert len(table_blocks) == 1
+    assert child_db_blocks == []
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_non_tty_does_not_create_db(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-TTY: rule is never set → no create_database invoked."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: False)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, {"root": body})
+    notion_mock = _build_notion_mock()
+    notion_mock.create_database = AsyncMock(return_value="db-x")
+    mock_notion_cls.return_value = notion_mock
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(tmp_path / "table-rules.json"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    notion_mock.create_database.assert_not_awaited()
+    mock_prompt.assert_not_called()
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_pass15_existing_is_database_rule_creates_db_without_prompt(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pre-existing is_database=True rule (no prompt) still triggers create_database."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, {"root": body})
+    notion_mock = _build_notion_mock()
+    notion_mock.create_database = AsyncMock(return_value="db-pre-existing")
+    mock_notion_cls.return_value = notion_mock
+
+    table_rules_path = tmp_path / "table-rules.json"
+    pre = TableRuleStore(table_rules_path)
+    pre.upsert(
+        ["Name", "Role"],
+        TableRule(
+            is_database=True,
+            title_column="name",
+            column_types={"name": "title", "role": "select"},
+        ),
+    )
+    pre.save()
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "resolution.json"),
+            "--table-rules",
+            str(table_rules_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    mock_prompt.assert_not_called()
+    assert notion_mock.create_database.await_count == 1
+    blocks = notion_mock.append_blocks.await_args_list[0].kwargs.get(
+        "blocks", notion_mock.append_blocks.await_args_list[0].args[1]
+    )
+    child_db_blocks = [b for b in blocks if b.get("type") == "child_database"]
+    assert len(child_db_blocks) == 1
+    assert child_db_blocks[0]["child_database"] == {"database_id": "db-pre-existing"}
 
 
 # --- _prompt_table_rule direct regression: store must survive round-trip ---

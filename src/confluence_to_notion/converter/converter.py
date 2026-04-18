@@ -632,6 +632,13 @@ def _convert_table(
 
     if ctx.store:
         entry = ctx.store.lookup(f"table:{identifier}")
+        if entry and "database_id" in entry.value:
+            return [
+                {
+                    "type": "child_database",
+                    "child_database": {"database_id": entry.value["database_id"]},
+                }
+            ]
         if entry and "notion_blocks" in entry.value:
             resolved: list[dict[str, Any]] = copy.deepcopy(entry.value["notion_blocks"])
             return resolved
