@@ -30,7 +30,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 ## Development Process
 
 - **CRITICAL**: TDD — write a failing test first, then implement (for Python code in `src/`)
-- **CRITICAL**: Before any **discover-pipeline** agent prompt change (`pattern-discovery`, `rule-proposer`), run `scripts/run-eval.sh`
+- **CRITICAL**: **discover-pipeline** 프롬프트(`pattern-discovery`, `rule-proposer`) 변경 PR은 `scripts/run-eval.sh` 결과(schema validation + semantic coverage + LLM-as-judge + baseline diff)를 **머지 게이트**로 사용한다. #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecate) 재설계로 eval 이 머지 게이트 신뢰성을 회복했음 — ADR-006 참조. PR 본문에 `eval_results/<timestamp>.json` 요약을 첨부한다(PR 템플릿 참조).
 - Conventional commits: `feat|fix|docs|refactor|test|chore`
 - Squash merge only
 - PR 생성 시 관련 이슈를 `Closes #N` 키워드로 본문에 연결 (머지 시 자동 클로즈)
@@ -64,7 +64,7 @@ bash scripts/discover.sh samples/ --from 3    # Resume from step 3 (finalize + c
 bash scripts/develop.sh <issue-number>              # Run full pipeline
 bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
-# Eval pipeline (schema validation + semantic coverage + baseline diff + prompt change detection)
+# Eval pipeline — discover-pipeline 프롬프트 변경 PR 의 머지 게이트 (schema validation + semantic coverage + LLM-as-judge + baseline diff)
 bash scripts/run-eval.sh                      # Results saved to eval_results/<timestamp>.json
 
 # Development

@@ -31,3 +31,9 @@
 - **Decision**: 변환 모호성(테이블 vs DB, 매크로 N:M 매핑 등)은 자동 판정·휴리스틱으로 해결하지 않고 `rule lookup → 없으면 사람에게 질의 → 답을 규칙으로 저장`을 기본 흐름으로 한다. discover 파이프라인의 patterns→rules 모델을 신규 변환 기능에도 동일하게 적용.
 - **Why**: Confluence는 회사·팀별 사용 패턴 차이가 커서 (커스텀 매크로, 자유로운 테이블 구조 등) 하드코딩 휴리스틱·LLM 단독 판정으로 일반화 불가. 사람이 한 번 결정한 룰은 같은 시그니처가 다시 나올 때 재사용되어 인터랙션 비용이 점근적으로 0으로 수렴.
 - **Impact**: 새 기능 설계 시 자동 판정을 1순위로 제안하지 않음(보조 수단으로만). 룰 저장소 위치·key 시그니처·비대화형(CI) 실행 시 fallback 정책을 기능별로 명시. LLM은 룰 초안 제안 등 보조 역할.
+
+## ADR-006: Eval as Merge Gate — Restored
+
+- **Decision**: discover-pipeline 프롬프트(`pattern-discovery`, `rule-proposer`) 변경 PR 의 머지 게이트로 `scripts/run-eval.sh` 결과(schema validation + semantic coverage + LLM-as-judge + baseline diff)를 사용한다. ADR-004 의 '정답표 enumerate 한계' 결정은 보존하되, #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecate) 재설계 이후의 현 정책으로 ADR-004 를 supersede.
+- **Why**: ADR-004 가 지적한 N:M 매핑·rule_id 비결정성 한계는 정답표 매칭 방식에 국한. 의미적 커버리지 + LLM-as-judge + baseline diff 조합은 개별 rule_id 에 묶이지 않고 변환 품질의 회귀를 잡을 수 있어 머지 게이트로 재사용 가능.
+- **Impact**: CLAUDE.md Development Process 문구가 '머지 게이트' 로 복귀(이 ADR 참조). `.github/pull_request_template.md` 에 discover-pipeline 프롬프트 변경 여부 체크박스 + `eval_results/<timestamp>.json` 첨부 가이드 섹션 추가. 스코프는 discover-pipeline 한정 — 그 외 PR 은 'N/A (discover-pipeline 무관)' 표기 허용. 회귀 감지는 `scripts/run-eval.sh --fail-on-regression` 로 엄격 모드 지정 가능.
