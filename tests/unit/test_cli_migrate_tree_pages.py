@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -787,3 +787,73 @@ def test_prompt_table_rule_persists_roundtrip_with_title_cased_headers(
     assert reloaded.lookup(headers) == rule
     # Signature key is normalized in the store.
     assert "name|role" in reloaded.data.rules
+
+
+def test_prompt_table_rule_reprompts_on_invalid_title_col(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TTY: a typo'd title_col not in headers re-prompts until a valid header is given."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+    monkeypatch.setattr("typer.confirm", lambda *a, **kw: True)
+
+    prompt_mock = MagicMock(side_effect=["totally_bogus", "Name"])
+    monkeypatch.setattr("typer.prompt", prompt_mock)
+
+    rule = _prompt_table_rule(
+        headers=["Name", "Role"],
+        sample_rows=[["Alice", "Dev"]],
+        column_type_draft={"Name": "title", "Role": "select"},
+    )
+
+    assert prompt_mock.call_count >= 2
+    assert rule.is_database is True
+    assert rule.title_column == "name"
+
+
+def test_prompt_table_rule_accepts_case_variant_without_reprompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TTY: 'NAME' for headers ['Name','Role'] resolves to 'name' on the first try."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+    monkeypatch.setattr("typer.confirm", lambda *a, **kw: True)
+
+    # Only one value supplied — a re-prompt would raise StopIteration and fail the test.
+    prompt_mock = MagicMock(side_effect=["NAME"])
+    monkeypatch.setattr("typer.prompt", prompt_mock)
+
+    rule = _prompt_table_rule(
+        headers=["Name", "Role"],
+        sample_rows=[["Alice", "Dev"]],
+        column_type_draft={"Name": "title", "Role": "select"},
+    )
+
+    assert prompt_mock.call_count == 1
+    assert rule.title_column == "name"
+
+
+def test_prompt_table_rule_non_tty_falls_back_to_first_header(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-TTY: a bogus title_col falls back to headers[0] (normalized) with a warning."""
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: False)
+    monkeypatch.setattr("typer.confirm", lambda *a, **kw: True)
+
+    prompt_mock = MagicMock(return_value="totally_bogus")
+    monkeypatch.setattr("typer.prompt", prompt_mock)
+
+    rule = _prompt_table_rule(
+        headers=["Name", "Role"],
+        sample_rows=[["Alice", "Dev"]],
+        column_type_draft={"Name": "title", "Role": "select"},
+    )
+
+    # Fallback to first header (normalized) — never persists a column not in the signature.
+    assert rule.title_column == "name"
+    # No looping in non-TTY: prompt is invoked at most once.
+    assert prompt_mock.call_count <= 1
+
+    captured = capsys.readouterr().out
+    # Operator-visible warning so the silent-wipe trap can't reopen via typos.
+    assert "totally_bogus" in captured
+    assert "name" in captured
