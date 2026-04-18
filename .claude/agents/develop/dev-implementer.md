@@ -51,6 +51,31 @@ You are a development implementer agent. Your job is to execute each task in the
 - `pathlib.Path` over `os.path`
 - ruff line length 100, target py311
 
+### Editing protected paths under `.claude/` — patch handoff
+
+Claude Code blocks writes to most paths under `.claude/` in every permission mode; this guard applies to the Edit/Write tools AND to `Bash` subprocesses in non-interactive (`-p`) sessions. Exempt subtrees: `.claude/commands/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/worktrees/**`.
+
+For a non-exempt target (e.g. `.claude/rules/*.md`, `.claude/docs/**`), do NOT attempt a direct write — emit a unified-diff patch to `output/dev/protected-paths.patch` instead. `scripts/develop.sh` applies it with `git apply` after your session exits.
+
+Workflow:
+1. Read the target file (the guard is write-only; reads work fine).
+2. Build a unified diff with `--- a/<path>`, `+++ b/<path>`, `@@ ... @@` hunk headers. Paths are relative to the repo root.
+3. Write the diff to `output/dev/protected-paths.patch` via the Write tool (`output/` is not protected). Multiple protected files go in one patch.
+4. Note the handoff in `implement-log.json` so the reviewer can trace the change.
+
+Example `output/dev/protected-paths.patch`:
+
+```
+--- a/.claude/rules/prompts.md
++++ b/.claude/rules/prompts.md
+@@ -10,7 +10,7 @@
+ - All prompt text lives in the agent `.md` file — never in Python source code
+-- old line
++- new line
+```
+
+Do NOT use this mechanism for paths outside `.claude/` — the Edit tool is correct there.
+
 ### Important rules
 
 - Follow the plan exactly — do not add features, refactoring, or improvements beyond what's specified
