@@ -10,6 +10,7 @@ from confluence_to_notion.agents.schemas import (
     EvalReport,
     ProposerOutput,
 )
+from confluence_to_notion.eval.semantic_coverage import analyze_coverage
 
 
 def _compute_scores(
@@ -89,8 +90,16 @@ def detect_prompt_changes() -> bool:
         return False
 
 
-def run_eval(output_dir: Path, fixture_dir: Path) -> EvalReport:
-    """Run full eval: compare actual outputs against expected fixtures."""
+def run_eval(
+    output_dir: Path,
+    fixture_dir: Path,
+    samples_dir: Path | None = None,
+) -> EvalReport:
+    """Run full eval: compare actual outputs against expected fixtures.
+
+    If ``samples_dir`` is given, also compute semantic coverage of the actual
+    ``patterns.json`` against the element kinds enumerated in sample pages.
+    """
     actual_patterns = DiscoveryOutput.model_validate_json(
         (output_dir / "patterns.json").read_text()
     )
@@ -112,9 +121,14 @@ def run_eval(output_dir: Path, fixture_dir: Path) -> EvalReport:
     overall_pass = all(r.status == "pass" for r in results)
     prompt_changed = detect_prompt_changes()
 
+    semantic_coverage = (
+        analyze_coverage(samples_dir, actual_patterns) if samples_dir is not None else None
+    )
+
     return EvalReport(
         timestamp=datetime.now(UTC).isoformat(),
         prompt_changed=prompt_changed,
         results=results,
         overall_pass=overall_pass,
+        semantic_coverage=semantic_coverage,
     )
