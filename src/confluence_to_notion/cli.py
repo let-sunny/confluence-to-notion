@@ -694,6 +694,11 @@ def migrate_tree_pages(
         "--table-rules",
         help="Path to table-rules.json (header-signature → Notion DB rule)",
     ),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Run the multi-pass migration: tree → table-rule discovery → body upload.
 
@@ -702,6 +707,11 @@ def migrate_tree_pages(
     discovers tables whose header signatures lack a rule, and (when run on a TTY)
     prompts the operator to classify them as layout tables or Notion databases.
     Pass 2 converts each page using both stores and appends the blocks to Notion.
+
+    When --url is provided, every artifact lands under ``output/runs/<slug>/``
+    (source.json, status.json, report.md, resolution.json, rules/table-rules.json,
+    converted/<page_id>.json); ``--resolution-out`` and ``--table-rules`` are
+    ignored in that mode.
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
 
@@ -729,18 +739,42 @@ def migrate_tree_pages(
         console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
         raise typer.Exit(code=1) from None
 
+    run_dir: Path | None = None
+    resolution_path = resolution_out
+    table_rules_path = table_rules_file
+    converted_dir: Path | None = None
+    if url is not None:
+        run_dir, _ = start_run(
+            Path("output"),
+            url,
+            "tree",
+            root_id=root_id,
+            notion_target={"page_id": parent_id},
+        )
+        resolution_path = run_dir / "resolution.json"
+        table_rules_path = run_dir / "rules" / "table-rules.json"
+        converted_dir = run_dir / "converted"
+        converted_dir.mkdir(parents=True, exist_ok=True)
+
     confluence = ConfluenceClient(settings)
     notion = NotionClientWrapper(settings)
-    table_rule_store = TableRuleStore(table_rules_file)
+    table_rule_store = TableRuleStore(table_rules_path)
 
     async def _run() -> tuple[int, int]:
+        if run_dir is not None:
+            update_step(run_dir, "fetch", StepStatus.RUNNING)
         async with confluence:
-            tree = await confluence.collect_page_tree(root_id)
+            try:
+                tree = await confluence.collect_page_tree(root_id)
+            except (httpx.HTTPStatusError, httpx.ConnectError):
+                if run_dir is not None:
+                    update_step(run_dir, "fetch", StepStatus.FAILED)
+                raise
 
             # --- Pass 1: create empty Notion pages mirroring the Confluence tree ---
             id_to_notion: dict[str, str] = {}
             id_to_title: dict[str, str] = {}
-            store = ResolutionStore(resolution_out)
+            store = ResolutionStore(resolution_path)
 
             async def _create_subtree(node: PageTreeNode, parent: str) -> None:
                 notion_page_id = await notion.create_subpage(parent, node.title)
@@ -759,9 +793,19 @@ def migrate_tree_pages(
 
             # --- Pass 1.5: discover unresolved table signatures, prompt for rules ---
             xhtml_cache: dict[str, str] = {}
-            for confluence_id in id_to_notion:
-                page = await confluence.get_page(confluence_id)
-                xhtml_cache[confluence_id] = page.storage_body
+            try:
+                for confluence_id in id_to_notion:
+                    page = await confluence.get_page(confluence_id)
+                    xhtml_cache[confluence_id] = page.storage_body
+            except (httpx.HTTPStatusError, httpx.ConnectError):
+                if run_dir is not None:
+                    update_step(run_dir, "fetch", StepStatus.FAILED)
+                raise
+
+            if run_dir is not None:
+                update_step(
+                    run_dir, "fetch", StepStatus.DONE, count=len(id_to_notion)
+                )
 
             # Tracks every unresolved table instance discovered during pre-convert,
             # so a single signature can be created once and applied to every instance.
@@ -833,41 +877,82 @@ def migrate_tree_pages(
                 store.save()
 
             # --- Pass 2: convert with both stores and append to Notion ---
+            if run_dir is not None:
+                update_step(run_dir, "convert", StepStatus.RUNNING)
+                update_step(run_dir, "migrate", StepStatus.RUNNING)
+
             succeeded = 0
             failed = 0
-            for confluence_id, notion_page_id in id_to_notion.items():
-                title = id_to_title[confluence_id]
-                xhtml = xhtml_cache[confluence_id]
-                try:
-                    result = convert_page(
-                        xhtml,
-                        ruleset,
-                        page_id=confluence_id,
-                        store=store,
-                        table_rules=table_rule_store,
+            try:
+                for confluence_id, notion_page_id in id_to_notion.items():
+                    title = id_to_title[confluence_id]
+                    xhtml = xhtml_cache[confluence_id]
+                    try:
+                        result = convert_page(
+                            xhtml,
+                            ruleset,
+                            page_id=confluence_id,
+                            store=store,
+                            table_rules=table_rule_store,
+                        )
+                        if converted_dir is not None:
+                            (converted_dir / f"{confluence_id}.json").write_text(
+                                json.dumps(
+                                    result.blocks, indent=2, ensure_ascii=False
+                                )
+                                + "\n",
+                                encoding="utf-8",
+                            )
+                        await notion.append_blocks(notion_page_id, result.blocks)
+                        succeeded += 1
+                        console.print(
+                            f"  [green]{title}[/green] → {notion_page_id}"
+                        )
+                    except APIResponseError as e:
+                        failed += 1
+                        console.print(
+                            f"  [red]{title}: Notion API error {e.status} — {e.body}[/red]"
+                        )
+                        raise
+            except APIResponseError:
+                if run_dir is not None:
+                    update_step(run_dir, "convert", StepStatus.FAILED)
+                    update_step(run_dir, "migrate", StepStatus.FAILED)
+                raise
+
+            if run_dir is not None:
+                update_step(
+                    run_dir, "convert", StepStatus.DONE, count=succeeded
+                )
+                if succeeded == 0 and failed > 0:
+                    update_step(
+                        run_dir, "migrate", StepStatus.FAILED, warnings=failed
                     )
-                    await notion.append_blocks(notion_page_id, result.blocks)
-                    succeeded += 1
-                    console.print(f"  [green]{title}[/green] → {notion_page_id}")
-                except APIResponseError as e:
-                    failed += 1
-                    console.print(
-                        f"  [red]{title}: Notion API error {e.status} — {e.body}[/red]"
+                else:
+                    update_step(
+                        run_dir,
+                        "migrate",
+                        StepStatus.DONE,
+                        count=succeeded,
+                        warnings=failed if failed > 0 else None,
                     )
-                    raise
 
             return succeeded, failed
 
     try:
-        succeeded, failed = asyncio.run(_run())
-    except APIResponseError:
-        raise typer.Exit(code=1) from None
+        try:
+            succeeded, failed = asyncio.run(_run())
+        except APIResponseError:
+            raise typer.Exit(code=1) from None
 
-    console.print(
-        f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]"
-    )
-    if failed > 0:
-        raise typer.Exit(code=1)
+        console.print(
+            f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]"
+        )
+        if failed > 0:
+            raise typer.Exit(code=1)
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
 
 
 def _prompt_table_rule(
