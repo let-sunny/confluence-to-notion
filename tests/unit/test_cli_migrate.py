@@ -217,7 +217,12 @@ class TestMigrateValidation:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(tmp_path / "nonexistent.json"), "--input", str(input_dir)],
+            [
+                "migrate",
+                "--rules", str(tmp_path / "nonexistent.json"),
+                "--input", str(input_dir),
+                "--url", _MIGRATE_URL,
+            ],
         )
         assert result.exit_code != 0
 
@@ -227,7 +232,12 @@ class TestMigrateValidation:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(rules_file), "--input", str(tmp_path / "nonexistent")],
+            [
+                "migrate",
+                "--rules", str(rules_file),
+                "--input", str(tmp_path / "nonexistent"),
+                "--url", _MIGRATE_URL,
+            ],
         )
         assert result.exit_code != 0
 
