@@ -340,26 +340,28 @@ def convert(
     input_dir: Path = typer.Option(
         Path("samples"), "--input", help="Directory of XHTML files"
     ),
-    output_dir: Path = typer.Option(
-        Path("output/converted"), "--output", help="Output directory for converted JSON"
-    ),
     url: str | None = typer.Option(
         None,
         "--url",
-        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+        help="Confluence source URL; converted artifacts land in output/runs/<slug>/",
     ),
 ) -> None:
     """Convert XHTML pages to Notion blocks using finalized rules.
 
-    When --url is provided, converted JSON lands under ``output/runs/<slug>/converted/``
-    alongside source.json, status.json, and report.md; ``--output`` is ignored in
-    that mode.
+    --url is required: converted JSON always lands under
+    ``output/runs/<slug>/converted/`` alongside source.json, status.json, and
+    report.md. Legacy repo-root sinks (``output/converted/``) are no longer written.
 
     Examples:
-        cli convert --rules output/rules.json --input samples/ --output output/converted/
         cli convert --url <confluence-url> --rules output/rules.json --input samples/
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
+
+    if url is None:
+        raise typer.BadParameter(
+            "--url is required; converted artifacts are written under output/runs/<slug>/.",
+            param_hint="--url",
+        )
 
     if not rules_file.exists():
         console.print(f"[red]Rules file not found: {rules_file}[/red]")
@@ -379,12 +381,9 @@ def convert(
         console.print(f"[yellow]No .xhtml files found in {input_dir}[/yellow]")
         raise typer.Exit(code=1)
 
-    run_dir: Path | None = None
-    target_dir = output_dir
-    if url is not None:
-        run_dir, _ = start_run(Path("output"), url, "page", root_id=None)
-        target_dir = run_dir / "converted"
-        update_step(run_dir, "convert", StepStatus.RUNNING)
+    run_dir, _ = start_run(Path("output"), url, "page", root_id=None)
+    target_dir = run_dir / "converted"
+    update_step(run_dir, "convert", StepStatus.RUNNING)
 
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -403,17 +402,14 @@ def convert(
                     f"  {xhtml_path.name} → {out_file.name} ({len(result.blocks)} blocks)"
                 )
         except (OSError, ValueError, KeyError):
-            if run_dir is not None:
-                update_step(run_dir, "convert", StepStatus.FAILED)
+            update_step(run_dir, "convert", StepStatus.FAILED)
             raise
 
-        if run_dir is not None:
-            update_step(run_dir, "convert", StepStatus.DONE, count=converted)
+        update_step(run_dir, "convert", StepStatus.DONE, count=converted)
 
         console.print(f"[green]Converted {converted} pages → {target_dir}[/green]")
     finally:
-        if run_dir is not None:
-            finalize_run(run_dir)
+        finalize_run(run_dir)
 
 
 @app.command()
@@ -573,28 +569,30 @@ def migrate_tree(
         "--target",
         help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)",
     ),
-    resolution_out: Path = typer.Option(
-        Path("output/resolution.json"),
-        "--resolution-out",
-        help="Where to persist title→Notion page ID mapping",
-    ),
     url: str | None = typer.Option(
         None,
         "--url",
-        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+        help="Confluence source URL; resolution.json lands under output/runs/<slug>/",
     ),
 ) -> None:
     """Create an empty Notion page hierarchy mirroring a Confluence tree.
 
     Reads a page-tree.json produced by ``fetch-tree``, creates an empty Notion
     page for each node under --target (or NOTION_ROOT_PAGE_ID), and persists
-    the resulting ``title → notion_page_id`` mapping to the resolution store
-    so that later conversion passes can resolve internal page links.
+    the resulting ``title → notion_page_id`` mapping under
+    ``output/runs/<slug>/resolution.json`` so later conversion passes can
+    resolve internal page links.
 
-    When --url is provided, resolution.json lands under ``output/runs/<slug>/``
-    alongside source.json, status.json, and report.md; ``--resolution-out`` is
-    ignored in that mode.
+    --url is required: every artifact (source.json, status.json, report.md,
+    resolution.json) lives inside the run directory. Legacy repo-root sinks
+    (``output/resolution.json``) are no longer written.
     """
+    if url is None:
+        raise typer.BadParameter(
+            "--url is required; resolution.json is written under output/runs/<slug>/.",
+            param_hint="--url",
+        )
+
     if not tree.exists():
         console.print(f"[red]Tree file not found: {tree}[/red]")
         raise typer.Exit(code=1)
@@ -624,18 +622,15 @@ def migrate_tree(
 
     client = NotionClientWrapper(settings)
 
-    run_dir: Path | None = None
-    resolution_path = resolution_out
-    if url is not None:
-        run_dir, _ = start_run(
-            Path("output"),
-            url,
-            "tree",
-            root_id=tree_node.id,
-            notion_target={"page_id": parent_id},
-        )
-        resolution_path = run_dir / "resolution.json"
-        update_step(run_dir, "migrate", StepStatus.RUNNING)
+    run_dir, _ = start_run(
+        Path("output"),
+        url,
+        "tree",
+        root_id=tree_node.id,
+        notion_target={"page_id": parent_id},
+    )
+    resolution_path = run_dir / "resolution.json"
+    update_step(run_dir, "migrate", StepStatus.RUNNING)
 
     async def _run() -> dict[str, str]:
         return await client.create_page_tree(parent_id=parent_id, tree=tree_node)
@@ -644,8 +639,7 @@ def migrate_tree(
         try:
             mapping = asyncio.run(_run())
         except APIResponseError as e:
-            if run_dir is not None:
-                update_step(run_dir, "migrate", StepStatus.FAILED)
+            update_step(run_dir, "migrate", StepStatus.FAILED)
             console.print(f"[red]Notion API error {e.status} — {e.body}[/red]")
             raise typer.Exit(code=1) from None
 
@@ -658,17 +652,13 @@ def migrate_tree(
             )
         store.save()
 
-        if run_dir is not None:
-            update_step(
-                run_dir, "migrate", StepStatus.DONE, count=len(mapping)
-            )
+        update_step(run_dir, "migrate", StepStatus.DONE, count=len(mapping))
 
         console.print(
             f"[green]Created {len(mapping)} Notion pages → {resolution_path}[/green]"
         )
     finally:
-        if run_dir is not None:
-            finalize_run(run_dir)
+        finalize_run(run_dir)
 
 
 @app.command(name="migrate-tree-pages")
@@ -681,23 +671,13 @@ def migrate_tree_pages(
         "--target",
         help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)",
     ),
-    resolution_out: Path = typer.Option(
-        Path("output/resolution.json"),
-        "--resolution-out",
-        help="Where to persist title→Notion page ID mapping",
-    ),
     rules_file: Path = typer.Option(
         Path("output/rules.json"), "--rules", help="Path to rules.json"
-    ),
-    table_rules_file: Path = typer.Option(
-        Path("output/rules/table-rules.json"),
-        "--table-rules",
-        help="Path to table-rules.json (header-signature → Notion DB rule)",
     ),
     url: str | None = typer.Option(
         None,
         "--url",
-        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+        help="Confluence source URL; every artifact lands under output/runs/<slug>/",
     ),
 ) -> None:
     """Run the multi-pass migration: tree → table-rule discovery → body upload.
@@ -708,12 +688,20 @@ def migrate_tree_pages(
     prompts the operator to classify them as layout tables or Notion databases.
     Pass 2 converts each page using both stores and appends the blocks to Notion.
 
-    When --url is provided, every artifact lands under ``output/runs/<slug>/``
+    --url is required: every artifact lands under ``output/runs/<slug>/``
     (source.json, status.json, report.md, resolution.json, rules/table-rules.json,
-    converted/<page_id>.json); ``--resolution-out`` and ``--table-rules`` are
-    ignored in that mode.
+    converted/<page_id>.json). Legacy repo-root sinks
+    (``output/resolution.json``, ``output/rules/table-rules.json``) are no longer
+    written.
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
+
+    if url is None:
+        raise typer.BadParameter(
+            "--url is required; resolution.json, rules/table-rules.json, and "
+            "converted/ are written under output/runs/<slug>/.",
+            param_hint="--url",
+        )
 
     if not rules_file.exists():
         console.print(f"[red]Rules file not found: {rules_file}[/red]")
@@ -739,36 +727,29 @@ def migrate_tree_pages(
         console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
         raise typer.Exit(code=1) from None
 
-    run_dir: Path | None = None
-    resolution_path = resolution_out
-    table_rules_path = table_rules_file
-    converted_dir: Path | None = None
-    if url is not None:
-        run_dir, _ = start_run(
-            Path("output"),
-            url,
-            "tree",
-            root_id=root_id,
-            notion_target={"page_id": parent_id},
-        )
-        resolution_path = run_dir / "resolution.json"
-        table_rules_path = run_dir / "rules" / "table-rules.json"
-        converted_dir = run_dir / "converted"
-        converted_dir.mkdir(parents=True, exist_ok=True)
+    run_dir, _ = start_run(
+        Path("output"),
+        url,
+        "tree",
+        root_id=root_id,
+        notion_target={"page_id": parent_id},
+    )
+    resolution_path = run_dir / "resolution.json"
+    table_rules_path = run_dir / "rules" / "table-rules.json"
+    converted_dir = run_dir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
 
     confluence = ConfluenceClient(settings)
     notion = NotionClientWrapper(settings)
     table_rule_store = TableRuleStore(table_rules_path)
 
     async def _run() -> tuple[int, int]:
-        if run_dir is not None:
-            update_step(run_dir, "fetch", StepStatus.RUNNING)
+        update_step(run_dir, "fetch", StepStatus.RUNNING)
         async with confluence:
             try:
                 tree = await confluence.collect_page_tree(root_id)
             except (httpx.HTTPStatusError, httpx.ConnectError):
-                if run_dir is not None:
-                    update_step(run_dir, "fetch", StepStatus.FAILED)
+                update_step(run_dir, "fetch", StepStatus.FAILED)
                 raise
 
             # --- Pass 1: create empty Notion pages mirroring the Confluence tree ---
@@ -798,14 +779,12 @@ def migrate_tree_pages(
                     page = await confluence.get_page(confluence_id)
                     xhtml_cache[confluence_id] = page.storage_body
             except (httpx.HTTPStatusError, httpx.ConnectError):
-                if run_dir is not None:
-                    update_step(run_dir, "fetch", StepStatus.FAILED)
+                update_step(run_dir, "fetch", StepStatus.FAILED)
                 raise
 
-            if run_dir is not None:
-                update_step(
-                    run_dir, "fetch", StepStatus.DONE, count=len(id_to_notion)
-                )
+            update_step(
+                run_dir, "fetch", StepStatus.DONE, count=len(id_to_notion)
+            )
 
             # Tracks every unresolved table instance discovered during pre-convert,
             # so a single signature can be created once and applied to every instance.
@@ -877,9 +856,8 @@ def migrate_tree_pages(
                 store.save()
 
             # --- Pass 2: convert with both stores and append to Notion ---
-            if run_dir is not None:
-                update_step(run_dir, "convert", StepStatus.RUNNING)
-                update_step(run_dir, "migrate", StepStatus.RUNNING)
+            update_step(run_dir, "convert", StepStatus.RUNNING)
+            update_step(run_dir, "migrate", StepStatus.RUNNING)
 
             succeeded = 0
             failed = 0
@@ -895,14 +873,13 @@ def migrate_tree_pages(
                             store=store,
                             table_rules=table_rule_store,
                         )
-                        if converted_dir is not None:
-                            (converted_dir / f"{confluence_id}.json").write_text(
-                                json.dumps(
-                                    result.blocks, indent=2, ensure_ascii=False
-                                )
-                                + "\n",
-                                encoding="utf-8",
+                        (converted_dir / f"{confluence_id}.json").write_text(
+                            json.dumps(
+                                result.blocks, indent=2, ensure_ascii=False
                             )
+                            + "\n",
+                            encoding="utf-8",
+                        )
                         await notion.append_blocks(notion_page_id, result.blocks)
                         succeeded += 1
                         console.print(
@@ -915,27 +892,23 @@ def migrate_tree_pages(
                         )
                         raise
             except APIResponseError:
-                if run_dir is not None:
-                    update_step(run_dir, "convert", StepStatus.FAILED)
-                    update_step(run_dir, "migrate", StepStatus.FAILED)
+                update_step(run_dir, "convert", StepStatus.FAILED)
+                update_step(run_dir, "migrate", StepStatus.FAILED)
                 raise
 
-            if run_dir is not None:
+            update_step(run_dir, "convert", StepStatus.DONE, count=succeeded)
+            if succeeded == 0 and failed > 0:
                 update_step(
-                    run_dir, "convert", StepStatus.DONE, count=succeeded
+                    run_dir, "migrate", StepStatus.FAILED, warnings=failed
                 )
-                if succeeded == 0 and failed > 0:
-                    update_step(
-                        run_dir, "migrate", StepStatus.FAILED, warnings=failed
-                    )
-                else:
-                    update_step(
-                        run_dir,
-                        "migrate",
-                        StepStatus.DONE,
-                        count=succeeded,
-                        warnings=failed if failed > 0 else None,
-                    )
+            else:
+                update_step(
+                    run_dir,
+                    "migrate",
+                    StepStatus.DONE,
+                    count=succeeded,
+                    warnings=failed if failed > 0 else None,
+                )
 
             return succeeded, failed
 
@@ -951,8 +924,7 @@ def migrate_tree_pages(
         if failed > 0:
             raise typer.Exit(code=1)
     finally:
-        if run_dir is not None:
-            finalize_run(run_dir)
+        finalize_run(run_dir)
 
 
 def _prompt_table_rule(

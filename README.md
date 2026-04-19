@@ -87,21 +87,23 @@ uv run cli fetch --pages 27846297,27838103
 ### 2. Discover transformation rules
 
 ```bash
-bash scripts/discover.sh samples/
+bash scripts/discover.sh samples/ --url https://cwiki.apache.org/confluence/display/KAFKA/Home
 ```
 
 This runs the 2-agent pipeline (pattern-discovery → rule-proposer) and writes
-`output/patterns.json` and `output/proposals.json`. Resume a specific step with
-`--from N`.
+`output/patterns.json` and `output/proposals.json`, then runs `finalize` +
+`convert` (step 4 lands converted JSON under `output/runs/<slug>/converted/`
+— the slug is derived from `--url`). Resume a specific step with `--from N`.
 
 ### 3. Finalize rules and convert offline
 
 ```bash
 uv run cli finalize output/proposals.json
-uv run cli convert --rules output/rules.json --input samples/ --output output/converted/
+uv run cli convert --rules output/rules.json --input samples/ --url <confluence-url>
 ```
 
-Inspect `output/converted/*.json` before pushing anything to Notion.
+Converted JSON lands in `output/runs/<slug>/converted/`. Inspect it before
+pushing anything to Notion.
 
 ### 4. Migrate to Notion
 
