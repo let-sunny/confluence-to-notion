@@ -4,15 +4,18 @@ import json
 from pathlib import Path
 
 import pytest
-import typer
 from mcp.shared.exceptions import McpError
 from pydantic import ValidationError
 
 from confluence_to_notion.mcp_server import (
+    _REPO_ROOT,
     ResolveUrlArgs,
     StatusArgs,
+    _c2n_convert_handler,
+    _c2n_discover_handler,
     _c2n_fetch_handler,
     _c2n_migrate_handler,
+    _c2n_push_handler,
     _list_resources_handler,
     _list_runs_handler,
     _read_resource_handler,
@@ -155,51 +158,183 @@ async def test_build_server_registers_expected_tools() -> None:
     } == names
 
 
-async def test_c2n_migrate_handler_returns_slug(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+async def test_c2n_migrate_handler_invokes_uv_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    from subprocess import CompletedProcess
 
-    def fake(
-        url: str,
-        *,
-        to: str | None,
-        name: str | None,
-        rediscover: bool,
-        dry_run: bool,
-    ) -> Path:
-        assert "wiki/spaces" in url
-        rd = tmp_path / "output" / "runs" / "slug-from-test"
-        rd.mkdir(parents=True, exist_ok=True)
-        return rd
+    calls: list[tuple[list[str], Path | None]] = []
 
-    monkeypatch.setattr("confluence_to_notion.cli._migrate_url_flow", fake)
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append((list(args), cwd))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "ok\n", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
     out = await _c2n_migrate_handler(
         "https://example.atlassian.net/wiki/spaces/E/pages/1/Title",
+        to="notion-target",
+        name="my-slug",
+        rediscover=True,
         dry_run=True,
     )
-    expected_dir = (tmp_path / "output" / "runs" / "slug-from-test").resolve()
-    assert out == {"slug": "slug-from-test", "run_dir": str(expected_dir)}
+    assert out == {"returncode": 0, "stdout": "ok"}
+    assert len(calls) == 1
+    argv, cwd_passed = calls[0]
+    assert cwd_passed is None  # _run_uv_c2n_sync maps None → _REPO_ROOT internally
+    assert argv == [
+        "migrate",
+        "https://example.atlassian.net/wiki/spaces/E/pages/1/Title",
+        "--to",
+        "notion-target",
+        "--name",
+        "my-slug",
+        "--rediscover",
+        "--dry-run",
+    ]
 
 
-async def test_c2n_migrate_handler_maps_typer_exit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+async def test_c2n_migrate_handler_subprocess_failure_includes_stderr(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    from subprocess import CompletedProcess
 
-    def boom(
-        url: str,
-        *,
-        to: str | None,
-        name: str | None,
-        rediscover: bool,
-        dry_run: bool,
-    ) -> Path:
-        raise typer.Exit(code=3)
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        return CompletedProcess(
+            ["uv", "run", "c2n", *args],
+            2,
+            "",
+            "bad things\n",
+        )
 
-    monkeypatch.setattr("confluence_to_notion.cli._migrate_url_flow", boom)
-    with pytest.raises(McpError, match="exit 3"):
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    with pytest.raises(McpError, match="bad things"):
         await _c2n_migrate_handler("https://example.atlassian.net/wiki/spaces/E/pages/1/T")
+
+
+def test_run_uv_c2n_sync_defaults_cwd_to_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess as sp
+
+    recorded: dict[str, Path | None] = {}
+
+    def capture_run(
+        cmd: list[str],
+        *,
+        cwd: str | Path | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+    ) -> sp.CompletedProcess[str]:
+        recorded["cwd"] = Path(cwd) if cwd is not None else None
+        return sp.CompletedProcess(cmd, 0, "x", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server.subprocess.run", capture_run)
+    from confluence_to_notion.mcp_server import _run_uv_c2n_sync
+
+    _run_uv_c2n_sync(["--help"], cwd=None)
+    assert recorded["cwd"] == _REPO_ROOT
+
+
+async def test_c2n_discover_handler_invokes_bash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess as sp
+
+    calls: list[tuple[list[str], Path]] = []
+
+    def capture_run(
+        cmd: list[str],
+        *,
+        cwd: str | Path | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+    ) -> sp.CompletedProcess[str]:
+        calls.append((list(cmd), Path(cwd) if cwd is not None else Path()))
+        return sp.CompletedProcess(cmd, 0, "discovered", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server.subprocess.run", capture_run)
+    out = await _c2n_discover_handler("samples", "https://wiki.example/x")
+    assert out == {"returncode": 0, "stdout": "discovered"}
+    assert calls[0][0] == [
+        "bash",
+        "scripts/discover.sh",
+        "samples",
+        "--url",
+        "https://wiki.example/x",
+    ]
+    assert calls[0][1] == _REPO_ROOT
+
+
+async def test_c2n_discover_handler_nonzero_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess as sp
+
+    def capture_run(
+        cmd: list[str],
+        *,
+        cwd: str | Path | None = None,
+        capture_output: bool = False,
+        text: bool = False,
+        check: bool = False,
+    ) -> sp.CompletedProcess[str]:
+        return sp.CompletedProcess(cmd, 1, "", "discover failed")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server.subprocess.run", capture_run)
+    with pytest.raises(McpError, match="discover failed"):
+        await _c2n_discover_handler("samples", "https://wiki.example/x")
+
+
+async def test_c2n_convert_handler_invokes_uv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append(list(args))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "conv", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    out = await _c2n_convert_handler("rules.json", "samples", "https://u")
+    assert out["stdout"] == "conv"
+    assert calls[0] == [
+        "convert",
+        "--rules",
+        "rules.json",
+        "--input",
+        "samples",
+        "--url",
+        "https://u",
+    ]
+
+
+async def test_c2n_push_handler_invokes_uv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append(list(args))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "pushed", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    out = await _c2n_push_handler("https://u", "r.json", "in", "tgt")
+    assert out["stdout"] == "pushed"
+    assert calls[0] == [
+        "migrate",
+        "--url",
+        "https://u",
+        "--rules",
+        "r.json",
+        "--input",
+        "in",
+        "--target",
+        "tgt",
+    ]
 
 
 async def test_c2n_fetch_handler_requires_space_or_pages() -> None:

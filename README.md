@@ -146,8 +146,11 @@ Run `uv run c2n <command> --help` for the full option list.
 ## MCP 설치
 
 `c2n` 는 stdio transport 기반 MCP 서버(`c2n-mcp`) 를 번들한다. Claude Code 에서
-레포 루트에 `.mcp.json` 을 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다
-(워킹 디렉터리는 이 레포 루트여야 `uv run`·`scripts/discover.sh` 경로가 맞는다).
+레포 루트에 `.mcp.json` 을 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다.
+
+`c2n-mcp` 는 `uv run c2n …` / `discover.sh` 자식 프로세스를 **항상 레포 루트를 `cwd` 로**
+실행한다(JSON-RPC용 stdout 에 Rich/쉘 로그가 섞이지 않도록, 자식 stdout/stderr 는 캡처).
+클라이언트 cwd 와 무관하게 `output/`, `samples/` 등은 레포 기준 경로로 해석된다.
 
 ```json
 {
@@ -167,11 +170,11 @@ Run `uv run c2n <command> --help` for the full option list.
 | `c2n_list_runs` | `output/runs/` 아래 런 요약 |
 | `c2n_status` | 특정 slug의 `status.json` (또는 slug 생략 시 목록) |
 | `c2n_resolve_url` | Confluence URL → `source_type` / `identifier` |
-| `c2n_migrate` | CLI와 동일한 URL 기반 `migrate` (`to`, `name`, `rediscover`, `dry_run`) — 성공 시 `slug`·`run_dir` 반환 |
-| `c2n_fetch` | `c2n fetch` 래퍼 (`space` 또는 `pages`, 선택 `url`) |
-| `c2n_discover` | `bash scripts/discover.sh <samples> --url <url>` |
-| `c2n_convert` | `c2n convert --rules … --input … --url …` |
-| `c2n_push` | 레거시 배치 `migrate` (`--url`, `--rules`, `--input`, `--target`) |
+| `c2n_migrate` | `uv run c2n migrate <url>` 서브프로세스(MCP stdio 보호). 선택 인자: `to`(Notion 부모 URL·page id), `name`(런 슬러그), `rediscover`, `dry_run`. 성공 시 `{returncode, stdout}` |
+| `c2n_fetch` | `uv run c2n fetch` (`space` 또는 `pages`, 선택 `url`) → `{returncode, stdout}` |
+| `c2n_discover` | `bash scripts/discover.sh <samples> --url <url>` → `{returncode, stdout}` |
+| `c2n_convert` | `uv run c2n convert --rules … --input … --url …` → `{returncode, stdout}` |
+| `c2n_push` | `uv run c2n migrate --url … --rules … --input … --target …` (레거시 배치) → `{returncode, stdout}` |
 
 ### Resources
 

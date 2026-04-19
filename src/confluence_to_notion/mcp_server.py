@@ -4,6 +4,10 @@ Exposes the run directory layout under ``output/runs/<slug>/`` and the generated
 ``output/rules.json`` to MCP clients (Claude Code and friends). Handlers are kept
 as pure ``async`` functions so tests can drive them without wiring up an actual
 FastMCP session.
+
+Write-side ``uv run c2n …`` / ``discover.sh`` helpers default ``cwd`` to the
+repository root so MCP stdio (JSON-RPC on stdout) is never polluted by Rich or
+subprocess child output; child stdout/stderr are captured instead.
 """
 
 from __future__ import annotations
@@ -14,7 +18,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import typer
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
 from mcp.shared.exceptions import McpError
@@ -135,9 +138,11 @@ async def _resolve_url_handler(url: str) -> dict[str, Any]:
 def _run_uv_c2n_sync(
     args: list[str], *, cwd: Path | None
 ) -> subprocess.CompletedProcess[str]:
+    """Run ``uv run c2n …`` with child stdout/stderr captured (MCP stdio-safe)."""
+    effective_cwd = cwd if cwd is not None else _REPO_ROOT
     proc: subprocess.CompletedProcess[str] = subprocess.run(
         ["uv", "run", "c2n", *args],
-        cwd=cwd or Path.cwd(),
+        cwd=effective_cwd,
         capture_output=True,
         text=True,
         check=False,
@@ -168,30 +173,17 @@ async def _c2n_migrate_handler(
     rediscover: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Run the same URL-driven migrate flow as ``c2n migrate <url>`` (writes under ``output/``)."""
-
-    def _run() -> Path:
-        from confluence_to_notion.cli import _migrate_url_flow
-
-        return _migrate_url_flow(
-            url,
-            to=to,
-            name=name,
-            rediscover=rediscover,
-            dry_run=dry_run,
-        )
-
-    try:
-        run_dir = await asyncio.to_thread(_run)
-    except typer.Exit as exc:
-        code = getattr(exc, "exit_code", 1) or 1
-        raise McpError(
-            ErrorData(
-                code=INTERNAL_ERROR,
-                message=f"c2n migrate failed (exit {code})",
-            )
-        ) from exc
-    return {"slug": run_dir.name, "run_dir": str(run_dir.resolve())}
+    """Run ``uv run c2n migrate <url> …`` (subprocess; keeps MCP stdio JSON-RPC clean)."""
+    args: list[str] = ["migrate", url]
+    if to is not None:
+        args.extend(["--to", to])
+    if name is not None:
+        args.extend(["--name", name])
+    if rediscover:
+        args.append("--rediscover")
+    if dry_run:
+        args.append("--dry-run")
+    return await _run_uv_c2n(args, cwd=None)
 
 
 async def _c2n_fetch_handler(
@@ -436,7 +428,7 @@ def build_server(base: Path = DEFAULT_BASE) -> FastMCP:
         rediscover: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """URL-driven migrate (same as ``c2n migrate <url>``); returns run slug + path."""
+        """URL-driven migrate via ``uv run c2n migrate`` subprocess (stdio-safe)."""
         return await _c2n_migrate_handler(
             url, to=to, name=name, rediscover=rediscover, dry_run=dry_run
         )
