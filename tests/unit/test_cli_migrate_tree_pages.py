@@ -1,5 +1,6 @@
 """Unit tests for the CLI migrate-tree-pages command (2-pass migration)."""
 
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ from confluence_to_notion.converter.schemas import (
     UnresolvedItem,
 )
 from confluence_to_notion.converter.table_rules import TableRuleStore
+from confluence_to_notion.runs import SourceInfo, StepStatus, read_status
 
 runner = CliRunner()
 
@@ -1131,3 +1133,248 @@ def test_prompt_table_rule_non_tty_falls_back_to_first_header(
     # Operator-visible warning so the silent-wipe trap can't reopen via typos.
     assert "totally_bogus" in captured
     assert "name" in captured
+
+
+# --- --url mode: run-dir layout wiring ---
+
+
+def _only_run_dir(tmp_path: Path) -> Path:
+    """Return the single run directory under ``tmp_path/output/runs/``."""
+    run_root = tmp_path / "output" / "runs"
+    dirs = [p for p in run_root.iterdir() if p.is_dir()]
+    assert len(dirs) == 1, f"expected exactly one run dir, got {dirs}"
+    return dirs[0]
+
+
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_migrate_tree_pages_url_mode_writes_run_artifacts(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    tmp_path: Path,
+) -> None:
+    """--url mode: start_run seeds source.json/status.json, converted/ holds Pass-2
+    JSON per page, status.json records fetch/convert/migrate=DONE, report.md is
+    rendered on finalize_run, and --resolution-out/--table-rules are ignored.
+    """
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock(_fixture_tree())
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    mock_convert.return_value = ConversionResult(
+        page_id="",
+        blocks=[{"object": "block", "type": "paragraph"}],
+        unresolved=[],
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    # Sabotage paths: if the CLI honored them in --url mode, these would be written.
+    sabotage_res = tmp_path / "nope-resolution.json"
+    sabotage_tr = tmp_path / "nope-table-rules.json"
+
+    url = "https://example.atlassian.net/wiki/spaces/TEST/pages/root/Root+Page"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(sabotage_res),
+            "--table-rules",
+            str(sabotage_tr),
+            "--url",
+            url,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+    # (a) run_dir exists with source.json + status.json + report.md
+    run_dir = _only_run_dir(tmp_path)
+    assert (run_dir / "source.json").exists()
+    assert (run_dir / "status.json").exists()
+    assert (run_dir / "report.md").exists()
+
+    source = SourceInfo.model_validate_json(
+        (run_dir / "source.json").read_text(encoding="utf-8")
+    )
+    assert source.url == url
+    assert source.type == "tree"
+    assert source.root_id == "root"
+    assert source.notion_target == {"page_id": "parent-xyz"}
+
+    # (b) resolution.json lives under run_dir, not at --resolution-out.
+    assert (run_dir / "resolution.json").exists()
+    assert not sabotage_res.exists()
+    # --table-rules sabotage path must not be touched either.
+    assert not sabotage_tr.exists()
+
+    # (d) Pass-2 converted blocks are written under run_dir/converted/<page_id>.json.
+    converted_dir = run_dir / "converted"
+    assert converted_dir.is_dir()
+    produced_ids = {p.stem for p in converted_dir.glob("*.json")}
+    assert produced_ids == {"root", "c1", "c2", "gc1"}
+    blocks = json.loads((converted_dir / "root.json").read_text(encoding="utf-8"))
+    assert blocks == [{"object": "block", "type": "paragraph"}]
+
+    # (e) status.json: fetch/convert/migrate DONE with expected counts.
+    status = read_status(run_dir)
+    assert status.fetch.status == StepStatus.DONE
+    assert status.fetch.count == 4
+    assert status.convert.status == StepStatus.DONE
+    assert status.convert.count == 4
+    assert status.migrate.status == StepStatus.DONE
+    assert status.migrate.count == 4
+
+    # (f) report.md starts with '# Run Report' and mentions the source URL.
+    report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert report_text.startswith("# Run Report")
+    assert url in report_text
+
+
+@patch("confluence_to_notion.cli._prompt_table_rule")
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_migrate_tree_pages_url_mode_persists_table_rules_under_run_dir(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    mock_prompt: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--url mode: table-rules store is saved under run_dir/rules/table-rules.json,
+    and the CLI-level --table-rules sabotage path is left untouched.
+    """
+    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
+
+    tree = PageTreeNode(id="root", title="Root Page")
+    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"], ["Bob", "PM"]])
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, {"root": body})
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    mock_convert.side_effect = _make_convert_side_effect(
+        {
+            body: [
+                UnresolvedItem(
+                    kind="table",
+                    identifier="t-root-0",
+                    source_page_id="root",
+                    context_xhtml=body,
+                )
+            ]
+        }
+    )
+    mock_prompt.return_value = TableRule(is_database=False)
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    sabotage_tr = tmp_path / "nope-table-rules.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--resolution-out",
+            str(tmp_path / "nope-resolution.json"),
+            "--table-rules",
+            str(sabotage_tr),
+            "--url",
+            "https://example.atlassian.net/wiki/spaces/TEST/pages/root",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    run_dir = _only_run_dir(tmp_path)
+    persisted = run_dir / "rules" / "table-rules.json"
+    assert persisted.exists(), f"expected {persisted} to be written"
+    body_loaded = TableRuleSet.model_validate_json(persisted.read_text(encoding="utf-8"))
+    assert "name|role" in body_loaded.rules
+
+    # The CLI-level path must not be touched.
+    assert not sabotage_tr.exists()
+
+
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_migrate_tree_pages_url_mode_marks_migrate_failed_on_api_error(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    tmp_path: Path,
+) -> None:
+    """--url mode: APIResponseError during Pass 2 flips migrate=FAILED in status.json
+    and finalize_run still writes report.md.
+    """
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock(
+        PageTreeNode(id="root", title="Root Page")
+    )
+    notion_mock = _build_notion_mock()
+    api_error = APIResponseError(
+        code="validation_error",
+        status=400,
+        message="invalid block",
+        headers=httpx.Headers(),
+        raw_body_text="invalid block",
+    )
+    notion_mock.append_blocks = AsyncMock(side_effect=api_error)
+    mock_notion_cls.return_value = notion_mock
+
+    mock_convert.return_value = ConversionResult(
+        page_id="",
+        blocks=[{"object": "block", "type": "paragraph"}],
+        unresolved=[],
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+    url = "https://example.atlassian.net/wiki/spaces/TEST/pages/root"
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--url",
+            url,
+        ],
+    )
+    assert result.exit_code != 0
+
+    run_dir = _only_run_dir(tmp_path)
+    status = read_status(run_dir)
+    assert status.migrate.status == StepStatus.FAILED
+    # finalize_run still wrote the report on the way out.
+    report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert report_text.startswith("# Run Report")
+    assert url in report_text
