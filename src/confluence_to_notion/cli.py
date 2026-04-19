@@ -343,14 +343,23 @@ def convert(
     output_dir: Path = typer.Option(
         Path("output/converted"), "--output", help="Output directory for converted JSON"
     ),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Convert XHTML pages to Notion blocks using finalized rules.
 
+    When --url is provided, converted JSON lands under ``output/runs/<slug>/converted/``
+    alongside source.json, status.json, and report.md; ``--output`` is ignored in
+    that mode.
+
     Examples:
         cli convert --rules output/rules.json --input samples/ --output output/converted/
+        cli convert --url <confluence-url> --rules output/rules.json --input samples/
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
-    from confluence_to_notion.converter.converter import convert_page
 
     if not rules_file.exists():
         console.print(f"[red]Rules file not found: {rules_file}[/red]")
@@ -370,22 +379,41 @@ def convert(
         console.print(f"[yellow]No .xhtml files found in {input_dir}[/yellow]")
         raise typer.Exit(code=1)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    converted = 0
+    run_dir: Path | None = None
+    target_dir = output_dir
+    if url is not None:
+        run_dir, _ = start_run(Path("output"), url, "page", root_id=None)
+        target_dir = run_dir / "converted"
+        update_step(run_dir, "convert", StepStatus.RUNNING)
 
-    for xhtml_path in xhtml_files:
-        xhtml = xhtml_path.read_text()
-        result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
-        out_file = output_dir / f"{xhtml_path.stem}.json"
-        out_file.write_text(
-            json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n"
-        )
-        converted += 1
-        console.print(
-            f"  {xhtml_path.name} → {out_file.name} ({len(result.blocks)} blocks)"
-        )
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-    console.print(f"[green]Converted {converted} pages → {output_dir}[/green]")
+    try:
+        converted = 0
+        try:
+            for xhtml_path in xhtml_files:
+                xhtml = xhtml_path.read_text()
+                result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
+                out_file = target_dir / f"{xhtml_path.stem}.json"
+                out_file.write_text(
+                    json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n"
+                )
+                converted += 1
+                console.print(
+                    f"  {xhtml_path.name} → {out_file.name} ({len(result.blocks)} blocks)"
+                )
+        except (OSError, ValueError, KeyError):
+            if run_dir is not None:
+                update_step(run_dir, "convert", StepStatus.FAILED)
+            raise
+
+        if run_dir is not None:
+            update_step(run_dir, "convert", StepStatus.DONE, count=converted)
+
+        console.print(f"[green]Converted {converted} pages → {target_dir}[/green]")
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
 
 
 @app.command()
