@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import click
 import pytest
 from typer.testing import CliRunner
 
@@ -62,10 +63,12 @@ class TestConvertRequiresUrl:
                     "--input",
                     str(samples_dir),
                 ],
+                standalone_mode=False,
             )
 
         assert result.exit_code != 0
-        assert "--url" in result.output
+        assert isinstance(result.exception, click.exceptions.UsageError)
+        assert "--url" in str(result.exception)
         assert not (tmp_path / "output" / "converted").exists()
         assert not (tmp_path / "output" / "runs").exists()
 
