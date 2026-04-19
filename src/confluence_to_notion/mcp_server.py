@@ -25,6 +25,16 @@ DEFAULT_BASE = Path("output")
 _C2N_SCHEME = "c2n://"
 
 
+def _unsafe_path_segment(segment: str) -> bool:
+    """True if ``segment`` must not be used as a single path component (slug, stem)."""
+    return (
+        not segment
+        or segment in (".", "..")
+        or "/" in segment
+        or "\\" in segment
+    )
+
+
 class StatusArgs(BaseModel):
     """Arguments for the ``c2n_status`` tool."""
 
@@ -81,7 +91,21 @@ async def _status_handler(
     """
     if slug is None:
         return await _list_runs_handler(base)
-    run_dir = base / "runs" / slug
+    if _unsafe_path_segment(slug):
+        raise McpError(
+            ErrorData(code=INVALID_PARAMS, message=f"invalid run slug: {slug!r}")
+        )
+    runs_root = (base / "runs").resolve()
+    run_dir = (base / "runs" / slug).resolve()
+    try:
+        if not run_dir.is_relative_to(runs_root):
+            raise McpError(
+                ErrorData(code=INVALID_PARAMS, message=f"run not found: {slug}")
+            )
+    except ValueError:
+        raise McpError(
+            ErrorData(code=INVALID_PARAMS, message=f"run not found: {slug}")
+        ) from None
     status_path = run_dir / "status.json"
     if not status_path.is_file():
         raise McpError(
@@ -182,10 +206,15 @@ async def _read_resource_handler(base: Path, uri: str) -> str:
     rest = uri[len(_C2N_SCHEME):]
     segments = [s for s in rest.split("/") if s]
 
+    base_res = base.resolve()
+
     if segments == ["rules"]:
-        rules_path = base / "rules.json"
-        if not rules_path.is_file():
-            raise _not_found(uri)
+        rules_path = (base / "rules.json").resolve()
+        try:
+            if not rules_path.is_file() or not rules_path.is_relative_to(base_res):
+                raise _not_found(uri)
+        except ValueError:
+            raise _not_found(uri) from None
         return rules_path.read_text(encoding="utf-8")
 
     if segments == ["runs"]:
@@ -193,20 +222,39 @@ async def _read_resource_handler(base: Path, uri: str) -> str:
 
     if len(segments) >= 3 and segments[0] == "runs":
         slug = segments[1]
-        run_dir = base / "runs" / slug
-        if not (run_dir / "status.json").is_file():
+        if _unsafe_path_segment(slug):
+            raise _not_found(uri)
+        runs_root = (base / "runs").resolve()
+        run_dir = (base / "runs" / slug).resolve()
+        try:
+            if not run_dir.is_relative_to(runs_root):
+                raise _not_found(uri)
+        except ValueError:
+            raise _not_found(uri) from None
+        status_path = (run_dir / "status.json").resolve()
+        if not status_path.is_file() or not status_path.is_relative_to(run_dir):
             raise _not_found(uri)
         if segments[2] == "status" and len(segments) == 3:
-            return (run_dir / "status.json").read_text(encoding="utf-8")
+            return status_path.read_text(encoding="utf-8")
         if segments[2] == "report" and len(segments) == 3:
-            report = run_dir / "report.md"
-            if not report.is_file():
-                raise _not_found(uri)
+            report = (run_dir / "report.md").resolve()
+            try:
+                if not report.is_file() or not report.is_relative_to(run_dir):
+                    raise _not_found(uri)
+            except ValueError:
+                raise _not_found(uri) from None
             return report.read_text(encoding="utf-8")
         if segments[2] == "converted" and len(segments) == 4:
-            target = run_dir / "converted" / f"{segments[3]}.json"
-            if not target.is_file():
+            stem = segments[3]
+            if _unsafe_path_segment(stem):
                 raise _not_found(uri)
+            conv_root = (run_dir / "converted").resolve()
+            target = (run_dir / "converted" / f"{stem}.json").resolve()
+            try:
+                if not target.is_file() or not target.is_relative_to(conv_root):
+                    raise _not_found(uri)
+            except ValueError:
+                raise _not_found(uri) from None
             return target.read_text(encoding="utf-8")
 
     raise _not_found(uri)

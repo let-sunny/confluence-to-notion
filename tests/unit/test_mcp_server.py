@@ -92,6 +92,12 @@ async def test_status_raises_mcp_error_for_missing_slug(tmp_path: Path) -> None:
         await _status_handler(tmp_path, "nope")
 
 
+async def test_status_rejects_unsafe_slug(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "safe")
+    with pytest.raises(McpError):
+        await _status_handler(tmp_path, "../safe")
+
+
 async def test_status_without_slug_returns_summary(tmp_path: Path) -> None:
     _seed_run(tmp_path, "example-1")
 
@@ -130,9 +136,10 @@ def test_resolve_url_args_requires_url() -> None:
 # ---------- build_server ---------------------------------------------------
 
 
-def test_build_server_registers_read_only_tools() -> None:
+async def test_build_server_registers_read_only_tools() -> None:
     server = build_server()
-    names = {t.name for t in server._tool_manager.list_tools()}
+    tools = await server.list_tools()
+    names = {t.name for t in tools}
     assert {"c2n_list_runs", "c2n_status", "c2n_resolve_url"}.issubset(names)
 
 
@@ -230,3 +237,17 @@ async def test_read_resource_missing_slug_raises(tmp_path: Path) -> None:
 async def test_read_resource_missing_rules_raises(tmp_path: Path) -> None:
     with pytest.raises(McpError):
         await _read_resource_handler(tmp_path, "c2n://rules")
+
+
+async def test_read_resource_rejects_dotdot_in_slug(tmp_path: Path) -> None:
+    _seed_run(tmp_path, "legit")
+    with pytest.raises(McpError):
+        await _read_resource_handler(tmp_path, "c2n://runs/../legit/status")
+
+
+async def test_read_resource_rejects_unsafe_converted_stem(
+    tmp_path: Path,
+) -> None:
+    _seed_run(tmp_path, "legit", converted=["ok"])
+    with pytest.raises(McpError):
+        await _read_resource_handler(tmp_path, "c2n://runs/legit/converted/..")
