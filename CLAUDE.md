@@ -52,13 +52,13 @@ uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
 uv run cli notion-ping                        # Validate Notion token
 uv run cli validate-output <file> <schema>   # Validate agent output (discovery|proposer)
 
-# Conversion (Python CLI)
-uv run cli finalize output/proposals.json     # proposals.json → rules.json
-uv run cli convert --rules output/rules.json --input samples/  # XHTML → Notion blocks
+# Conversion (Python CLI) — convert/migrate write artifacts under output/runs/<slug>/
+uv run cli finalize output/proposals.json                                 # proposals.json → rules.json
+uv run cli convert --rules output/rules.json --input samples/ --url <url> # XHTML → Notion blocks (→ output/runs/<slug>/converted/)
 
 # Agent pipeline (bash script orchestration) — steps 1-2 agents, 3-4 deterministic
-bash scripts/discover.sh samples/             # Run full pipeline (4 steps)
-bash scripts/discover.sh samples/ --from 3    # Resume from step 3 (finalize + convert)
+bash scripts/discover.sh samples/ --url <url>             # Run full pipeline (4 steps)
+bash scripts/discover.sh samples/ --url <url> --from 3    # Resume from step 3 (finalize + convert)
 
 # Automated development pipeline — 7 steps: Plan, Implement, Test, Review, Fix, Verify, PR
 bash scripts/develop.sh <issue-number>              # Run full pipeline

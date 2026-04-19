@@ -3,15 +3,16 @@
 # Each step reads the previous step's output file.
 #
 # Usage:
-#   bash scripts/discover.sh samples/
-#   bash scripts/discover.sh samples/ --from 3   # resume from step 3
-#   bash scripts/discover.sh samples/ --scout     # include step 0: scout public wikis
+#   bash scripts/discover.sh samples/ --url <confluence-url>
+#   bash scripts/discover.sh samples/ --url <url> --from 3   # resume from step 3
+#   bash scripts/discover.sh samples/ --url <url> --scout    # include step 0: scout public wikis
 set -euo pipefail
 
-SAMPLES_DIR="${1:?Usage: discover.sh <samples-dir> [--from N] [--scout]}"
+SAMPLES_DIR="${1:?Usage: discover.sh <samples-dir> --url <confluence-url> [--from N] [--scout]}"
 OUTPUT_DIR="output"
 FROM_STEP=1
 SCOUT=false
+URL=""
 
 # Parse flags
 shift
@@ -19,9 +20,16 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --from) FROM_STEP="$2"; shift 2 ;;
         --scout) SCOUT=true; shift ;;
+        --url) URL="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+if [[ "$FROM_STEP" -le 4 && -z "$URL" ]]; then
+    echo "[ERROR] --url <confluence-url> is required when step 4 (convert) runs."
+    echo "        Example: --url https://cwiki.apache.org/confluence/display/KAFKA/Home"
+    exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -105,19 +113,20 @@ if [[ "$FROM_STEP" -le 3 ]]; then
     echo "    Done: ${OUTPUT_DIR}/rules.json"
 fi
 
-# Step 4: Convert XHTML → Notion blocks
+# Step 4: Convert XHTML → Notion blocks (artifacts land under output/runs/<slug>/converted/)
 if [[ "$FROM_STEP" -le 4 ]]; then
     echo "==> Step 4: convert (XHTML → Notion blocks)"
     if ! uv run cli convert \
         --rules "${OUTPUT_DIR}/rules.json" \
         --input "${SAMPLES_DIR}" \
-        --output "${OUTPUT_DIR}/converted"; then
+        --url "${URL}"; then
         echo "[ERROR] Step 4 (convert) failed."
         echo "        Rules: ${OUTPUT_DIR}/rules.json"
         echo "        Input: ${SAMPLES_DIR}"
+        echo "        URL:   ${URL}"
         exit 1
     fi
-    echo "    Done: ${OUTPUT_DIR}/converted/"
+    echo "    Done: ${OUTPUT_DIR}/runs/<slug>/converted/ (slug derived from --url)"
 fi
 
 echo ""
