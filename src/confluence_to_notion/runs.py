@@ -206,15 +206,31 @@ def update_step(
     write_status(run_dir, updated)
 
 
-def finalize_run(run_dir: Path) -> None:
-    """Render ``run_dir/report.md`` from ``source.json`` + ``status.json``."""
+def finalize_run(run_dir: Path, *, rules_summary: str | None = None) -> None:
+    """Render ``run_dir/report.md`` from ``source.json`` + ``status.json``.
+
+    When ``rules_summary`` is provided, a ``## Rules usage`` section is appended
+    to the rendered report; passing ``None`` (the default) omits the section.
+    """
     source = SourceInfo.model_validate_json(
         (run_dir / "source.json").read_text(encoding="utf-8")
     )
     status = read_status(run_dir)
     (run_dir / "report.md").write_text(
-        render_report(source, status), encoding="utf-8"
+        render_report(source, status, rules_summary=rules_summary),
+        encoding="utf-8",
     )
+
+
+def format_rules_summary(used_rules: dict[str, int]) -> str | None:
+    """Render ``used_rules`` as sorted ``- <rule_id>: <count>`` lines.
+
+    Returns ``None`` when ``used_rules`` is empty so callers can pass the result
+    straight into ``finalize_run(..., rules_summary=...)`` without conditionals.
+    """
+    if not used_rules:
+        return None
+    return "\n".join(f"- {rule_id}: {count}" for rule_id, count in sorted(used_rules.items()))
 
 
 def render_report(

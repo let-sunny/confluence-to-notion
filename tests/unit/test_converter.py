@@ -1327,3 +1327,56 @@ class TestResolutionStoreDatabaseIdEmission:
         ]
         tables_unresolved = [u for u in result.unresolved if u.kind == "table"]
         assert tables_unresolved == []
+
+
+# --- used_rules usage tracking ---
+
+
+class TestUsedRulesTracking:
+    """ConversionResult.used_rules counts each enabled rule that actually matched."""
+
+    def test_toc_macro_increments_toc_rule(self) -> None:
+        xhtml = (
+            '<ac:structured-macro ac:name="toc" ac:schema-version="1">'
+            '<ac:parameter ac:name="maxLevel">3</ac:parameter>'
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset())
+        assert result.used_rules == {"rule:macro:toc": 1}
+
+    def test_code_macro_increments_code_rule(self) -> None:
+        xhtml = (
+            '<ac:structured-macro ac:name="code">'
+            '<ac:parameter ac:name="language">python</ac:parameter>'
+            "<ac:plain-text-body><![CDATA[print('hi')]]></ac:plain-text-body>"
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset())
+        assert result.used_rules == {"rule:macro:code": 1}
+
+    def test_info_panel_increments_info_rule(self) -> None:
+        xhtml = (
+            '<ac:structured-macro ac:name="info">'
+            "<ac:rich-text-body><p>Important</p></ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset())
+        assert result.used_rules == {"rule:macro:info": 1}
+
+    def test_two_jira_macros_inline_and_block_count_twice(self) -> None:
+        xhtml = (
+            "<p>See "
+            '<ac:structured-macro ac:name="jira" ac:schema-version="1">'
+            '<ac:parameter ac:name="key">KAFKA-1</ac:parameter>'
+            "</ac:structured-macro>"
+            " for context</p>"
+            '<ac:structured-macro ac:name="jira" ac:schema-version="1">'
+            '<ac:parameter ac:name="key">KAFKA-2</ac:parameter>'
+            "</ac:structured-macro>"
+        )
+        result = convert_page(xhtml, _default_ruleset())
+        assert result.used_rules == {"rule:macro:jira": 2}
+
+    def test_no_matches_returns_empty_dict(self) -> None:
+        result = convert_page("<p>plain text</p>", _default_ruleset())
+        assert result.used_rules == {}

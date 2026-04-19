@@ -10,6 +10,7 @@ from confluence_to_notion.runs import (
     StepRecord,
     StepStatus,
     finalize_run,
+    format_rules_summary,
     init_run_dir,
     read_status,
     slug_for_url,
@@ -206,3 +207,52 @@ class TestRunLifecycle:
         assert "page" in report
         assert "fetch" in report
         assert "done" in report
+
+    def test_finalize_run_without_summary_omits_rules_usage_section(
+        self, tmp_path: Path
+    ) -> None:
+        url = "https://example.atlassian.net/wiki/spaces/ENG/pages/9/Page"
+        run_dir, _ = start_run(tmp_path, url, "page", root_id="9")
+
+        finalize_run(run_dir)
+
+        report = (run_dir / "report.md").read_text(encoding="utf-8")
+        assert "## Rules usage" not in report
+
+    def test_finalize_run_with_rules_summary_emits_section(
+        self, tmp_path: Path
+    ) -> None:
+        url = "https://example.atlassian.net/wiki/spaces/ENG/pages/9/Page"
+        run_dir, _ = start_run(tmp_path, url, "page", root_id="9")
+
+        summary = "- rule:macro:toc: 3\n- rule:macro:jira: 1"
+        finalize_run(run_dir, rules_summary=summary)
+
+        report = (run_dir / "report.md").read_text(encoding="utf-8")
+        assert "## Rules usage" in report
+        assert "- rule:macro:toc: 3" in report
+        assert "- rule:macro:jira: 1" in report
+
+
+class TestFormatRulesSummary:
+    """format_rules_summary renders a sorted '- <rule_id>: <count>' bullet list."""
+
+    def test_empty_dict_returns_none(self) -> None:
+        assert format_rules_summary({}) is None
+
+    def test_single_rule(self) -> None:
+        assert format_rules_summary({"rule:macro:toc": 1}) == "- rule:macro:toc: 1"
+
+    def test_multiple_rules_sorted_by_id(self) -> None:
+        result = format_rules_summary(
+            {
+                "rule:macro:jira": 5,
+                "rule:macro:code": 2,
+                "rule:macro:toc": 1,
+            }
+        )
+        assert result == (
+            "- rule:macro:code: 2\n"
+            "- rule:macro:jira: 5\n"
+            "- rule:macro:toc: 1"
+        )
