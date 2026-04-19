@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import click
 import httpx
 import pytest
 from notion_client import APIResponseError
@@ -80,10 +81,12 @@ def test_migrate_tree_without_url_exits(tmp_path: Path) -> None:
             "--target",
             "parent-xyz",
         ],
+        standalone_mode=False,
     )
 
     assert result.exit_code != 0
-    assert "--url" in result.output
+    assert isinstance(result.exception, click.exceptions.UsageError)
+    assert "--url" in str(result.exception)
     assert not (tmp_path / "output" / "resolution.json").exists()
     assert not (tmp_path / "output" / "runs").exists()
 
