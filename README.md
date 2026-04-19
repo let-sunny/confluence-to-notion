@@ -49,7 +49,7 @@ NOTION_ROOT_PAGE_ID=your-notion-parent-page-id
 Verify the Notion token is valid:
 
 ```bash
-uv run cli notion-ping
+uv run c2n notion-ping
 ```
 
 ## Pipeline stages
@@ -71,60 +71,60 @@ files on disk.
 
 ## Migration walkthrough (Apache cwiki → Notion)
 
-The example below migrates a subtree of `cwiki.apache.org` rooted at a known
-page ID. Swap the ID and Notion target for your own.
-
-### 1. Fetch representative samples for rule discovery
+One command does the whole thing — fetch, discover rules (if needed), convert,
+and publish to Notion. Pass any Confluence URL (single page or space root):
 
 ```bash
-# Fetch a handful of pages from a space to let the agents see real content
-uv run cli fetch --space KAFKA --limit 25
+# Single page
+uv run c2n migrate https://cwiki.apache.org/confluence/display/KAFKA/Home
 
-# Or fetch specific page IDs
-uv run cli fetch --pages 27846297,27838103
+# Entire space (recursive, preserves hierarchy)
+uv run c2n migrate https://cwiki.apache.org/confluence/spaces/KAFKA
+
+# Override the Notion parent (URL or raw page id)
+uv run c2n migrate <confluence-url> --to https://notion.so/My-Target-abc123...
+
+# Fetch + convert only, no Notion writes — inspect output/runs/<slug>/ first
+uv run c2n migrate <confluence-url> --dry-run
+
+# Force re-discovering rules instead of reusing output/rules.json
+uv run c2n migrate <confluence-url> --rediscover
 ```
 
-### 2. Discover transformation rules
+`c2n migrate` classifies the URL (new-Cloud `/spaces/<KEY>/pages/<id>/...`,
+legacy `/display/<SPACE>/<Title>`, or space-root `/spaces/<KEY>`), runs
+`scripts/discover.sh` if `output/rules.json` is missing, converts, and publishes
+everything under `output/runs/<slug>/` (source.json, status.json, report.md,
+converted/, resolution.json for trees).
+
+### Low-level escape hatch
+
+The individual stages are still available for advanced workflows (inspecting
+intermediate artifacts, re-running a single step, wiring into CI):
 
 ```bash
-bash scripts/discover.sh samples/ --url https://cwiki.apache.org/confluence/display/KAFKA/Home
-```
+# Fetch-only
+uv run c2n fetch --space KAFKA --limit 25
+uv run c2n fetch --pages 27846297,27838103
 
-This runs the 2-agent pipeline (pattern-discovery → rule-proposer) and writes
-`output/patterns.json` and `output/proposals.json`, then runs `finalize` +
-`convert` (step 4 lands converted JSON under `output/runs/<slug>/converted/`
-— the slug is derived from `--url`). Resume a specific step with `--from N`.
+# Run just the discover pipeline
+bash scripts/discover.sh samples/ --url <confluence-url>
 
-### 3. Finalize rules and convert offline
+# Finalize + convert offline
+uv run c2n finalize output/proposals.json
+uv run c2n convert --rules output/rules.json --input samples/ --url <confluence-url>
 
-```bash
-uv run cli finalize output/proposals.json
-uv run cli convert --rules output/rules.json --input samples/ --url <confluence-url>
-```
+# Publish with the legacy migrate form (takes --rules/--input/--target)
+uv run c2n migrate --url <confluence-url> --rules output/rules.json --input samples/
 
-Converted JSON lands in `output/runs/<slug>/converted/`. Inspect it before
-pushing anything to Notion.
-
-### 4. Migrate to Notion
-
-For a flat set of pages:
-
-```bash
-uv run cli migrate --rules output/rules.json --input samples/
-# --target <page-id> overrides NOTION_ROOT_PAGE_ID
-```
-
-For a full subtree with internal links preserved (2-pass: create empty pages
-first, then upload bodies so `[[page-link]]` resolves to Notion mentions):
-
-```bash
-uv run cli fetch-tree --root-id 27846297 --output output/page-tree.json
-uv run cli migrate-tree-pages --root-id 27846297 --rules output/rules.json
+# 2-pass tree migration (create empty pages, then upload bodies)
+uv run c2n fetch-tree --url <confluence-url> --root-id 27846297
+uv run c2n migrate-tree-pages --url <confluence-url> --root-id 27846297 --rules output/rules.json
 ```
 
 `migrate-tree-pages` persists a `title → notion_page_id` map to
-`output/resolution.json`, which the converter uses to turn Confluence internal
-links into Notion page mentions.
+`output/runs/<slug>/resolution.json`, which the converter uses to turn
+Confluence internal links into Notion page mentions.
 
 ## CLI reference
 
@@ -141,7 +141,7 @@ migrate-tree-pages  Full 2-pass tree migration (create, then upload)
 validate-output     Validate an agent output file against its Pydantic schema
 ```
 
-Run `uv run cli <command> --help` for the full option list.
+Run `uv run c2n <command> --help` for the full option list.
 
 ## Development
 
@@ -150,7 +150,7 @@ uv sync                          # Install dependencies
 uv run pytest                    # Run tests
 uv run ruff check src/ tests/    # Lint
 uv run mypy src/                 # Type check (strict on src/)
-uv run cli --help                # CLI usage
+uv run c2n --help                # CLI usage
 bash scripts/run-eval.sh         # Agent output eval pipeline
 ```
 

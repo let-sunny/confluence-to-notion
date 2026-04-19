@@ -23,6 +23,7 @@ from confluence_to_notion.converter.converter import convert_page
 from confluence_to_notion.notion.schemas import NotionPageResult
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "integration"
+FIXTURE_URL = "https://cwiki.apache.org/confluence/display/TEST/Integration+Page"
 
 runner = CliRunner()
 
@@ -99,7 +100,11 @@ class TestMigrateDryRun:
         rules_file = _copy_rules(tmp_path)
 
         args = [
-            "migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", parent_id
+            "migrate",
+            "--url", FIXTURE_URL,
+            "--rules", str(rules_file),
+            "--input", str(input_dir),
+            "--target", parent_id,
         ]
         result = runner.invoke(app, args)
 
@@ -123,7 +128,11 @@ class TestMigrateDryRun:
         rules_file = _copy_rules(tmp_path)
 
         args = [
-            "migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", parent_id
+            "migrate",
+            "--url", FIXTURE_URL,
+            "--rules", str(rules_file),
+            "--input", str(input_dir),
+            "--target", parent_id,
         ]
         result = runner.invoke(app, args)
 
@@ -148,7 +157,11 @@ class TestMigrateDryRun:
         rules_file = _copy_rules(tmp_path)
 
         args = [
-            "migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", parent_id
+            "migrate",
+            "--url", FIXTURE_URL,
+            "--rules", str(rules_file),
+            "--input", str(input_dir),
+            "--target", parent_id,
         ]
         result = runner.invoke(app, args)
 
@@ -178,7 +191,11 @@ class TestMigrateDryRun:
         rules_file = _copy_rules(tmp_path)
 
         args = [
-            "migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", parent_id
+            "migrate",
+            "--url", FIXTURE_URL,
+            "--rules", str(rules_file),
+            "--input", str(input_dir),
+            "--target", parent_id,
         ]
         result = runner.invoke(app, args)
 

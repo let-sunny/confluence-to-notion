@@ -39,7 +39,7 @@ cp .env.example .env
 ### 연결 확인
 
 ```bash
-uv run cli notion-ping
+uv run c2n notion-ping
 ```
 
 Notion 토큰이 유효하면 워크스페이스 정보가 출력됩니다.
@@ -68,7 +68,7 @@ Notion 토큰이 유효하면 워크스페이스 정보가 출력됩니다.
 
 1. `src/**/schemas.py`에 Pydantic v2 모델을 정의한다.
 2. 에이전트는 이 모델과 호환되는 JSON을 생성한다.
-3. 오케스트레이션 스크립트는 `uv run cli validate-output <file> <schema>`로 출력을 검증한다.
+3. 오케스트레이션 스크립트는 `uv run c2n validate-output <file> <schema>`로 출력을 검증한다.
 
 모델이 계약이므로, 에이전트 프롬프트는 스키마를 참조하고 예시를 포함해야 합니다.
 

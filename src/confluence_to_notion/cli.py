@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import typer
@@ -27,12 +29,18 @@ from confluence_to_notion.converter.table_rules import (
 )
 from confluence_to_notion.notion.client import NotionClientWrapper
 from confluence_to_notion.runs import (
+    RunStatus,
+    SourceInfo,
     StepStatus,
     finalize_run,
     format_rules_summary,
+    init_run_dir,
+    slug_for_url,
     start_run,
     update_step,
+    write_status,
 )
+from confluence_to_notion.url import ConfluenceUrlError, parse_confluence_url
 
 app = typer.Typer(help="confluence-to-notion: auto-discover transformation rules")
 console = Console()
@@ -418,29 +426,70 @@ def convert(
 
 @app.command()
 def migrate(
+    confluence_url: str | None = typer.Argument(
+        None,
+        metavar="[CONFLUENCE_URL]",
+        help=(
+            "Confluence URL (page or space). When provided, c2n auto-dispatches "
+            "to a single-page or tree/space fan-out flow. Omit to use the legacy "
+            "--rules/--input/--target form."
+        ),
+    ),
+    to: str | None = typer.Option(
+        None,
+        "--to",
+        help="Notion parent (page URL or page id). Falls back to NOTION_ROOT_PAGE_ID.",
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="Override the run slug under output/runs/."
+    ),
+    rediscover: bool = typer.Option(
+        False,
+        "--rediscover",
+        help="Force re-running scripts/discover.sh even when output/rules.json exists.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Fetch + convert only; skip every Notion write.",
+    ),
     rules_file: Path = typer.Option(
-        Path("output/rules.json"), "--rules", help="Path to rules.json"
+        Path("output/rules.json"), "--rules", help="Path to rules.json (legacy form)"
     ),
     input_dir: Path = typer.Option(
-        Path("samples"), "--input", help="Directory of XHTML files"
+        Path("samples"), "--input", help="Directory of XHTML files (legacy form)"
     ),
     target: str | None = typer.Option(
-        None, "--target", help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)"
+        None,
+        "--target",
+        help="Notion parent page ID (legacy form; fallback: NOTION_ROOT_PAGE_ID)",
     ),
     url: str | None = typer.Option(
         None,
         "--url",
-        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+        help="Confluence source URL (legacy form); prefer the positional CONFLUENCE_URL.",
     ),
 ) -> None:
     """Convert XHTML pages and publish them to Notion.
 
-    --url is required: status.json and report.md land under
-    ``output/runs/<slug>/`` alongside source.json.
+    Preferred form:
+        c2n migrate <confluence-url> [--to <notion-url|page-id>] [--name <slug>]
+                                     [--rediscover] [--dry-run]
 
-    Examples:
-        cli migrate --url <confluence-url> --rules output/rules.json --input samples/
+    Legacy form (escape hatch — still supported):
+        c2n migrate --url <confluence-url> --rules output/rules.json
+                    --input samples/ --target <page-id>
     """
+    if confluence_url is not None:
+        _migrate_url_flow(
+            confluence_url,
+            to=to,
+            name=name,
+            rediscover=rediscover,
+            dry_run=dry_run,
+        )
+        return
+
     from confluence_to_notion.agents.schemas import FinalRuleset
     from confluence_to_notion.converter.converter import convert_page
 
@@ -939,6 +988,388 @@ def migrate_tree_pages(
             raise typer.Exit(code=1)
     finally:
         finalize_run(run_dir, rules_summary=format_rules_summary(used_rules_total))
+
+
+def _run_discover(run_dir: Path, url: str) -> None:
+    """Shell out to ``scripts/discover.sh`` to produce ``output/rules.json``.
+
+    The script writes ``output/rules.json`` at the repo root, which the URL-dispatch
+    flow then reads. Exits the CLI on non-zero subprocess status.
+    """
+    samples_dir = run_dir / "samples"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+    cmd = ["bash", "scripts/discover.sh", str(samples_dir), "--url", url]
+    console.print(f"[cyan]Running discover:[/cyan] {' '.join(cmd)}")
+    proc = subprocess.run(cmd, check=False)
+    if proc.returncode != 0:
+        console.print(
+            f"[red]scripts/discover.sh failed with exit {proc.returncode}[/red]"
+        )
+        raise typer.Exit(code=1)
+
+
+def _extract_notion_page_id(target_value: str) -> str:
+    """Normalize ``--to`` into a Notion page id.
+
+    If the value looks like an URL, take the final path segment and strip hyphens
+    (Notion URLs end with ``…/page-title-<32-hex>``). Otherwise return it verbatim.
+    """
+    parsed = urlparse(target_value)
+    if parsed.scheme in {"http", "https"} and parsed.path:
+        last_segment = [s for s in parsed.path.split("/") if s][-1]
+        return last_segment.replace("-", "")
+    return target_value
+
+
+def _start_url_run(
+    url: str,
+    source_type: str,
+    *,
+    slug: str | None,
+    root_id: str | None,
+    notion_target: dict[str, Any] | None,
+) -> Path:
+    """Create ``output/runs/<slug>/`` with an optional slug override + seed source/status."""
+    effective_slug = slug or slug_for_url(url)
+    run_dir = init_run_dir(Path("output"), effective_slug)
+    source = SourceInfo(
+        url=url,
+        type=source_type,
+        root_id=root_id,
+        notion_target=notion_target,
+    )
+    (run_dir / "source.json").write_text(
+        source.model_dump_json(indent=2), encoding="utf-8"
+    )
+    write_status(run_dir, RunStatus())
+    return run_dir
+
+
+def _migrate_url_flow(
+    url: str,
+    *,
+    to: str | None,
+    name: str | None,
+    rediscover: bool,
+    dry_run: bool,
+) -> None:
+    """URL-driven migrate: parse, optional discover, dispatch page/space, finalize."""
+    from confluence_to_notion.agents.schemas import FinalRuleset
+
+    try:
+        info = parse_confluence_url(url)
+    except ConfluenceUrlError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    settings = _load_settings()
+    parent_id: str | None = None
+    if not dry_run:
+        parent_id = (
+            _extract_notion_page_id(to) if to is not None else settings.notion_root_page_id
+        )
+        if not parent_id:
+            console.print(
+                "[red]No Notion target. Pass --to or set NOTION_ROOT_PAGE_ID in .env[/red]"
+            )
+            raise typer.Exit(code=1)
+        try:
+            settings.require_notion()
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(code=1) from None
+
+    notion_target = {"page_id": parent_id} if parent_id else None
+    run_dir = _start_url_run(
+        url,
+        info.source_type,
+        slug=name,
+        root_id=info.identifier if info.source_type == "page" else None,
+        notion_target=notion_target,
+    )
+
+    rules_path = Path("output") / "rules.json"
+    if rediscover or not rules_path.exists():
+        update_step(run_dir, "discover", StepStatus.RUNNING)
+        try:
+            _run_discover(run_dir, url)
+        except typer.Exit:
+            update_step(run_dir, "discover", StepStatus.FAILED)
+            finalize_run(run_dir)
+            raise
+        update_step(run_dir, "discover", StepStatus.DONE)
+    else:
+        update_step(run_dir, "discover", StepStatus.SKIPPED)
+
+    if not rules_path.exists():
+        console.print(f"[red]Rules file missing after discover: {rules_path}[/red]")
+        finalize_run(run_dir)
+        raise typer.Exit(code=1)
+
+    try:
+        ruleset = FinalRuleset.model_validate_json(rules_path.read_text())
+    except ValidationError as e:
+        console.print(f"[red]Invalid rules file: {e.error_count()} errors[/red]")
+        finalize_run(run_dir)
+        raise typer.Exit(code=1) from None
+
+    used_rules_total: dict[str, int] = {}
+    try:
+        if info.source_type == "page":
+            _run_page_dispatch(
+                info.identifier,
+                run_dir=run_dir,
+                ruleset=ruleset,
+                settings=settings,
+                parent_id=parent_id,
+                dry_run=dry_run,
+                used_rules_total=used_rules_total,
+            )
+        else:
+            _run_space_dispatch(
+                info.identifier,
+                url=url,
+                run_dir=run_dir,
+                ruleset=ruleset,
+                settings=settings,
+                parent_id=parent_id,
+                dry_run=dry_run,
+                used_rules_total=used_rules_total,
+            )
+    finally:
+        finalize_run(
+            run_dir, rules_summary=format_rules_summary(used_rules_total)
+        )
+
+
+def _run_page_dispatch(
+    identifier: str,
+    *,
+    run_dir: Path,
+    ruleset: Any,
+    settings: Settings,
+    parent_id: str | None,
+    dry_run: bool,
+    used_rules_total: dict[str, int],
+) -> None:
+    """Fetch one Confluence page, convert, and (unless dry_run) publish to Notion."""
+    samples_dir = run_dir / "samples"
+    converted_dir = run_dir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
+
+    confluence = ConfluenceClient(settings)
+    update_step(run_dir, "fetch", StepStatus.RUNNING)
+
+    async def _fetch() -> list[Path]:
+        return await confluence.fetch_samples_to_disk(
+            samples_dir, page_ids=[identifier]
+        )
+
+    try:
+        saved = asyncio.run(_fetch())
+    except (httpx.HTTPStatusError, httpx.ConnectError, KeyError) as e:
+        update_step(run_dir, "fetch", StepStatus.FAILED)
+        console.print(f"[red]Confluence fetch failed: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    if not saved:
+        update_step(run_dir, "fetch", StepStatus.FAILED)
+        console.print(f"[red]No page fetched for identifier {identifier!r}[/red]")
+        raise typer.Exit(code=1)
+
+    update_step(run_dir, "fetch", StepStatus.DONE, count=len(saved))
+
+    update_step(run_dir, "convert", StepStatus.RUNNING)
+    converted_blocks: list[tuple[str, str, list[dict[str, Any]]]] = []
+    try:
+        for xhtml_path in saved:
+            xhtml = xhtml_path.read_text(encoding="utf-8")
+            result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
+            for rule_id, count in result.used_rules.items():
+                used_rules_total[rule_id] = used_rules_total.get(rule_id, 0) + count
+            title = _extract_title(result.blocks, fallback=xhtml_path.stem)
+            (converted_dir / f"{xhtml_path.stem}.json").write_text(
+                json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            converted_blocks.append((xhtml_path.stem, title, result.blocks))
+    except (OSError, ValueError, KeyError) as e:
+        update_step(run_dir, "convert", StepStatus.FAILED)
+        console.print(f"[red]Conversion failed: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    update_step(run_dir, "convert", StepStatus.DONE, count=len(converted_blocks))
+
+    if dry_run:
+        update_step(run_dir, "migrate", StepStatus.SKIPPED)
+        console.print("[yellow]--dry-run: skipped Notion writes[/yellow]")
+        return
+
+    assert parent_id is not None
+    notion = NotionClientWrapper(settings)
+    update_step(run_dir, "migrate", StepStatus.RUNNING)
+
+    async def _push() -> int:
+        pushed = 0
+        for _, title, blocks in converted_blocks:
+            await notion.create_page(parent_id=parent_id, title=title, blocks=blocks)
+            pushed += 1
+            console.print(f"  [green]{title}[/green] → notion")
+        return pushed
+
+    try:
+        pushed = asyncio.run(_push())
+    except APIResponseError as e:
+        update_step(run_dir, "migrate", StepStatus.FAILED)
+        console.print(f"[red]Notion API error {e.status} — {e.body}[/red]")
+        raise typer.Exit(code=1) from None
+
+    update_step(run_dir, "migrate", StepStatus.DONE, count=pushed)
+
+
+def _run_space_dispatch(
+    identifier: str,
+    *,
+    url: str,
+    run_dir: Path,
+    ruleset: Any,
+    settings: Settings,
+    parent_id: str | None,
+    dry_run: bool,
+    used_rules_total: dict[str, int],
+) -> None:
+    """Tree/space fan-out: mirror the Confluence tree into Notion and convert each body.
+
+    ``identifier`` may already be a Confluence page id (when the URL parser returned
+    source_type='page' and callers decided to run the fan-out anyway) or a space key —
+    for space keys we resolve the first listed page as the tree root, mirroring what
+    ``migrate-tree-pages`` does with ``--root-id``.
+    """
+    converted_dir = run_dir / "converted"
+    converted_dir.mkdir(parents=True, exist_ok=True)
+    resolution_path = run_dir / "resolution.json"
+
+    confluence = ConfluenceClient(settings)
+    notion = NotionClientWrapper(settings)
+
+    async def _run() -> tuple[int, int]:
+        update_step(run_dir, "fetch", StepStatus.RUNNING)
+        async with confluence:
+            summaries = await confluence.list_pages_in_space(identifier, limit=1)
+            if not summaries:
+                update_step(run_dir, "fetch", StepStatus.FAILED)
+                console.print(
+                    f"[red]No pages found in space {identifier!r}[/red]"
+                )
+                raise typer.Exit(code=1)
+            root_id = summaries[0].id
+
+            tree = await confluence.collect_page_tree(root_id)
+
+            id_to_notion: dict[str, str] = {}
+            id_to_title: dict[str, str] = {}
+            store = ResolutionStore(resolution_path)
+
+            async def _create_subtree(node: PageTreeNode, parent: str | None) -> None:
+                if dry_run or parent is None:
+                    notion_page_id = f"dry-run:{node.id}"
+                else:
+                    notion_page_id = await notion.create_subpage(parent, node.title)
+                id_to_notion[node.id] = notion_page_id
+                id_to_title[node.id] = node.title
+                store.add(
+                    key=f"page_link:{node.title}",
+                    resolved_by="notion_migration",
+                    value={"notion_page_id": notion_page_id},
+                )
+                for child in node.children:
+                    await _create_subtree(child, notion_page_id)
+
+            await _create_subtree(tree, parent_id)
+            store.save()
+
+            xhtml_cache: dict[str, str] = {}
+            for confluence_id in id_to_notion:
+                page = await confluence.get_page(confluence_id)
+                xhtml_cache[confluence_id] = page.storage_body
+
+        update_step(
+            run_dir, "fetch", StepStatus.DONE, count=len(id_to_notion)
+        )
+
+        update_step(run_dir, "convert", StepStatus.RUNNING)
+        converted_pages: dict[str, list[dict[str, Any]]] = {}
+        try:
+            for confluence_id, xhtml in xhtml_cache.items():
+                result = convert_page(
+                    xhtml,
+                    ruleset,
+                    page_id=confluence_id,
+                    store=store,
+                )
+                for rule_id, count in result.used_rules.items():
+                    used_rules_total[rule_id] = used_rules_total.get(rule_id, 0) + count
+                (converted_dir / f"{confluence_id}.json").write_text(
+                    json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                converted_pages[confluence_id] = result.blocks
+        except (OSError, ValueError, KeyError) as e:
+            update_step(run_dir, "convert", StepStatus.FAILED)
+            console.print(f"[red]Conversion failed: {e}[/red]")
+            raise typer.Exit(code=1) from None
+
+        update_step(run_dir, "convert", StepStatus.DONE, count=len(converted_pages))
+
+        if dry_run:
+            update_step(run_dir, "migrate", StepStatus.SKIPPED)
+            console.print("[yellow]--dry-run: skipped Notion writes[/yellow]")
+            return len(converted_pages), 0
+
+        update_step(run_dir, "migrate", StepStatus.RUNNING)
+        succeeded = 0
+        failed = 0
+        try:
+            for confluence_id, blocks in converted_pages.items():
+                notion_page_id = id_to_notion[confluence_id]
+                try:
+                    await notion.append_blocks(notion_page_id, blocks)
+                    succeeded += 1
+                    console.print(
+                        f"  [green]{id_to_title[confluence_id]}[/green] "
+                        f"→ {notion_page_id}"
+                    )
+                except APIResponseError as e:
+                    failed += 1
+                    console.print(
+                        f"  [red]{id_to_title[confluence_id]}: Notion API error "
+                        f"{e.status} — {e.body}[/red]"
+                    )
+                    raise
+        except APIResponseError:
+            update_step(run_dir, "migrate", StepStatus.FAILED)
+            raise
+
+        if succeeded == 0 and failed > 0:
+            update_step(run_dir, "migrate", StepStatus.FAILED, warnings=failed)
+        else:
+            update_step(
+                run_dir,
+                "migrate",
+                StepStatus.DONE,
+                count=succeeded,
+                warnings=failed if failed > 0 else None,
+            )
+        return succeeded, failed
+
+    try:
+        asyncio.run(_run())
+    except APIResponseError:
+        raise typer.Exit(code=1) from None
+    except (httpx.HTTPStatusError, httpx.ConnectError) as e:
+        update_step(run_dir, "fetch", StepStatus.FAILED)
+        console.print(f"[red]Confluence error: {e}[/red]")
+        raise typer.Exit(code=1) from None
 
 
 def _prompt_table_rule(
