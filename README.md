@@ -143,6 +143,31 @@ validate-output     Validate an agent output file against its Pydantic schema
 
 Run `uv run c2n <command> --help` for the full option list.
 
+## MCP 설치
+
+`c2n` 는 stdio transport 기반 MCP 서버(`c2n-mcp`) 를 번들한다. Claude Code 에서
+`.mcp.json` 을 레포 루트에 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다.
+
+```json
+{
+  "mcpServers": {
+    "c2n": {
+      "command": "uv",
+      "args": ["run", "c2n-mcp"]
+    }
+  }
+}
+```
+
+현재 read-only 범위:
+
+- Tools: `c2n_list_runs`, `c2n_status`, `c2n_resolve_url`
+- Resources: `c2n://runs`, `c2n://runs/<slug>/status|report|converted/<page>`,
+  `c2n://rules`
+
+Write-side tool (`c2n_migrate`) 와 low-level tools (`c2n_fetch` / `c2n_discover` /
+`c2n_convert` / `c2n_push`) 는 후속 이슈에서 추가 예정이다.
+
 ## Development
 
 ```bash
