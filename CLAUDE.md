@@ -52,11 +52,11 @@ uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
 uv run cli notion-ping                        # Validate Notion token
 uv run cli validate-output <file> <schema>   # Validate agent output (discovery|proposer)
 
-# Conversion & migration (Python CLI) — convert / migrate-tree / migrate-tree-pages require --url; migrate accepts --url optionally.
+# Conversion & migration (Python CLI) — convert / migrate / migrate-tree / migrate-tree-pages all require --url.
 # When --url is set, artifacts land under output/runs/<slug>/{source.json,status.json,report.md,resolution.json,converted/,...}
 uv run cli finalize output/proposals.json                                                           # proposals.json → rules.json (no run dir)
 uv run cli convert --url <url> --rules output/rules.json --input samples/                           # XHTML → Notion blocks (→ output/runs/<slug>/converted/)
-uv run cli migrate --url <url> --rules output/rules.json --input samples/ --target <page-id>        # Convert + publish pages (--url optional; without it, no run-dir artifacts)
+uv run cli migrate --url <url> --rules output/rules.json --input samples/ --target <page-id>        # Convert + publish pages
 uv run cli migrate-tree --url <url> --tree output/page-tree.json --target <page-id>                 # Create empty Notion hierarchy (→ output/runs/<slug>/resolution.json)
 uv run cli migrate-tree-pages --url <url> --root-id <conf-id> --rules output/rules.json --target <page-id>  # Multi-pass tree migration (resolution.json + rules/table-rules.json + converted/)
 
