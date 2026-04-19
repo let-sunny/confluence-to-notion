@@ -9,13 +9,16 @@ from confluence_to_notion.runs import (
     SourceInfo,
     StepRecord,
     StepStatus,
+    backup_rules_json,
     finalize_run,
     format_rules_summary,
     init_run_dir,
+    read_rules_meta,
     read_status,
     slug_for_url,
     start_run,
     update_step,
+    write_rules_meta,
     write_status,
 )
 
@@ -232,6 +235,77 @@ class TestRunLifecycle:
         assert "## Rules usage" in report
         assert "- rule:macro:toc: 3" in report
         assert "- rule:macro:jira: 1" in report
+
+
+_PREV_RE = re.compile(r"^rules\.json\.prev-\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+
+
+class TestRulesMeta:
+    """read_rules_meta / write_rules_meta persist a sidecar {'generated_at': ...}."""
+
+    def test_missing_meta_returns_none(self, tmp_path: Path) -> None:
+        assert read_rules_meta(tmp_path) is None
+
+    def test_round_trip(self, tmp_path: Path) -> None:
+        write_rules_meta(tmp_path, "2026-04-19T12:00:00+00:00")
+        assert read_rules_meta(tmp_path) == "2026-04-19T12:00:00+00:00"
+
+    def test_write_creates_sidecar_file(self, tmp_path: Path) -> None:
+        write_rules_meta(tmp_path, "2026-04-19T12:00:00+00:00")
+        sidecar = tmp_path / "rules.json.meta.json"
+        assert sidecar.is_file()
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        assert payload == {"generated_at": "2026-04-19T12:00:00+00:00"}
+
+    def test_write_overwrites_existing_meta(self, tmp_path: Path) -> None:
+        write_rules_meta(tmp_path, "2026-04-18T10:00:00+00:00")
+        write_rules_meta(tmp_path, "2026-04-19T12:00:00+00:00")
+        assert read_rules_meta(tmp_path) == "2026-04-19T12:00:00+00:00"
+
+
+class TestBackupRulesJson:
+    """backup_rules_json copies rules.json → rules.json.prev-<ts> and rotates."""
+
+    def test_noop_when_rules_json_absent(self, tmp_path: Path) -> None:
+        assert backup_rules_json(tmp_path) is None
+        assert list(tmp_path.iterdir()) == []
+
+    def test_creates_backup_with_expected_name_pattern(self, tmp_path: Path) -> None:
+        (tmp_path / "rules.json").write_text('{"source": "x", "rules": []}')
+        backup = backup_rules_json(tmp_path)
+        assert backup is not None
+        assert backup.parent == tmp_path
+        assert _PREV_RE.match(backup.name), backup.name
+        # Content copied verbatim
+        assert backup.read_text(encoding="utf-8") == '{"source": "x", "rules": []}'
+        # Original rules.json still present
+        assert (tmp_path / "rules.json").is_file()
+
+    def test_second_backup_rotates_only_newest_kept(self, tmp_path: Path) -> None:
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text('{"source": "first", "rules": []}')
+        first = backup_rules_json(tmp_path)
+        assert first is not None
+
+        # Second generation: discover wrote a new rules.json, then another
+        # backup runs before a third regenerate.
+        rules_path.write_text('{"source": "second", "rules": []}')
+        second = backup_rules_json(tmp_path)
+        assert second is not None
+
+        # Older backup must be gone; only the newest one survives.
+        prev_siblings = sorted(tmp_path.glob("rules.json.prev-*"))
+        assert prev_siblings == [second]
+        assert not first.exists()
+        # Backup captures whatever rules.json held at backup time (v2 here).
+        assert second.read_text(encoding="utf-8") == '{"source": "second", "rules": []}'
+
+    def test_backup_ignores_meta_sidecar_when_rotating(self, tmp_path: Path) -> None:
+        # The meta sidecar is not a .prev-* file — rotation must not touch it.
+        (tmp_path / "rules.json").write_text('{"source": "x", "rules": []}')
+        write_rules_meta(tmp_path, "2026-04-19T12:00:00+00:00")
+        backup_rules_json(tmp_path)
+        assert (tmp_path / "rules.json.meta.json").is_file()
 
 
 class TestFormatRulesSummary:

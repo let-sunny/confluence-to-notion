@@ -102,6 +102,8 @@ class TestSourceInfo:
         assert source.type == "page"
         assert source.root_id is None
         assert source.notion_target is None
+        assert source.rules_source is None
+        assert source.rules_generated_at is None
 
     def test_parses_full_payload(self) -> None:
         payload = {
@@ -123,3 +125,42 @@ class TestSourceInfo:
         )
         restored = SourceInfo.model_validate_json(source.model_dump_json())
         assert restored == source
+
+    @pytest.mark.parametrize("value", ["reused", "regenerated", "generated"])
+    def test_accepts_rules_source_literals(self, value: str) -> None:
+        source = SourceInfo(
+            url="https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+            type="page",
+            rules_source=value,  # type: ignore[arg-type]
+        )
+        assert source.rules_source == value
+
+    def test_rejects_invalid_rules_source(self) -> None:
+        with pytest.raises(ValidationError):
+            SourceInfo(
+                url="https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+                type="page",
+                rules_source="bogus",  # type: ignore[arg-type]
+            )
+
+    def test_stores_rules_generated_at(self) -> None:
+        source = SourceInfo(
+            url="https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+            type="page",
+            rules_source="reused",
+            rules_generated_at="2026-04-19T12:00:00+00:00",
+        )
+        assert source.rules_generated_at == "2026-04-19T12:00:00+00:00"
+
+    def test_json_round_trip_with_rules_fields(self) -> None:
+        source = SourceInfo(
+            url="https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+            type="page",
+            rules_source="regenerated",
+            rules_generated_at="2026-04-19T12:00:00+00:00",
+        )
+        restored = SourceInfo.model_validate_json(source.model_dump_json())
+        assert restored == source
+        payload = json.loads(source.model_dump_json())
+        assert payload["rules_source"] == "regenerated"
+        assert payload["rules_generated_at"] == "2026-04-19T12:00:00+00:00"

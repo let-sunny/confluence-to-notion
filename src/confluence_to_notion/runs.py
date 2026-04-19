@@ -5,7 +5,9 @@ free of Confluence/Notion client coupling so CLI subcommands can wire it in with
 pulling network dependencies.
 """
 
+import json
 import re
+import shutil
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -69,6 +71,21 @@ class SourceInfo(BaseModel):
     notion_target: dict[str, Any] | None = Field(
         default=None,
         description="Resolved Notion destination (e.g. {'page_id': '...'})",
+    )
+    rules_source: Literal["reused", "regenerated", "generated"] | None = Field(
+        default=None,
+        description=(
+            "How output/rules.json was provisioned for this run: 'reused' (existing "
+            "rules.json), 'regenerated' (--rediscover over an existing file), "
+            "'generated' (first-time discover because rules.json was absent)."
+        ),
+    )
+    rules_generated_at: str | None = Field(
+        default=None,
+        description=(
+            "ISO-8601 UTC timestamp of the last successful rules.json generation, "
+            "sourced from output/rules.json.meta.json when present."
+        ),
     )
 
 
@@ -233,6 +250,52 @@ def format_rules_summary(used_rules: dict[str, int]) -> str | None:
     return "\n".join(f"- {rule_id}: {count}" for rule_id, count in sorted(used_rules.items()))
 
 
+_RULES_META_NAME = "rules.json.meta.json"
+_RULES_BACKUP_PREFIX = "rules.json.prev-"
+
+
+def read_rules_meta(output_dir: Path) -> str | None:
+    """Return the ``generated_at`` timestamp from ``output_dir/rules.json.meta.json``.
+
+    Returns ``None`` when the sidecar is missing so callers can treat an unknown
+    generation time uniformly.
+    """
+    sidecar = output_dir / _RULES_META_NAME
+    if not sidecar.is_file():
+        return None
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    value = payload.get("generated_at")
+    return value if isinstance(value, str) else None
+
+
+def write_rules_meta(output_dir: Path, generated_at: str) -> None:
+    """Persist ``{'generated_at': generated_at}`` to ``output_dir/rules.json.meta.json``."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / _RULES_META_NAME).write_text(
+        json.dumps({"generated_at": generated_at}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def backup_rules_json(output_dir: Path) -> Path | None:
+    """Copy ``output_dir/rules.json`` to ``rules.json.prev-<iso-utc-ts>`` and rotate.
+
+    Keeps exactly one backup: any older ``rules.json.prev-*`` siblings are deleted
+    after the new copy is written. Returns the backup path, or ``None`` when
+    ``rules.json`` is absent (noop).
+    """
+    rules_path = output_dir / "rules.json"
+    if not rules_path.is_file():
+        return None
+    timestamp = datetime.now(UTC).isoformat()
+    backup = output_dir / f"{_RULES_BACKUP_PREFIX}{timestamp}"
+    shutil.copy2(rules_path, backup)
+    for sibling in output_dir.glob(f"{_RULES_BACKUP_PREFIX}*"):
+        if sibling != backup:
+            sibling.unlink()
+    return backup
+
+
 def render_report(
     source: SourceInfo,
     status: RunStatus,
@@ -260,6 +323,12 @@ def render_report(
     for name in _STEP_FIELDS:
         record: StepRecord = getattr(status, name)
         lines.append(_format_step_line(name, record))
+    if source.rules_source is not None:
+        lines.append("")
+        lines.append("## Rules source")
+        lines.append(f"- source: {source.rules_source}")
+        if source.rules_generated_at is not None:
+            lines.append(f"- last generated_at: {source.rules_generated_at}")
     if rules_summary is not None:
         lines.append("")
         lines.append("## Rules usage")

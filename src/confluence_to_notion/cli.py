@@ -4,8 +4,9 @@ import asyncio
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -32,12 +33,15 @@ from confluence_to_notion.runs import (
     RunStatus,
     SourceInfo,
     StepStatus,
+    backup_rules_json,
     finalize_run,
     format_rules_summary,
     init_run_dir,
+    read_rules_meta,
     slug_for_url,
     start_run,
     update_step,
+    write_rules_meta,
     write_status,
 )
 from confluence_to_notion.url import ConfluenceUrlError, parse_confluence_url
@@ -1021,6 +1025,23 @@ def _extract_notion_page_id(target_value: str) -> str:
     return target_value
 
 
+def _persist_rules_source(
+    run_dir: Path,
+    rules_source: Literal["reused", "regenerated", "generated"],
+    rules_generated_at: str | None,
+) -> None:
+    """Re-serialize ``run_dir/source.json`` with the rediscover-policy fields set."""
+    source_path = run_dir / "source.json"
+    current = SourceInfo.model_validate_json(source_path.read_text(encoding="utf-8"))
+    updated = current.model_copy(
+        update={
+            "rules_source": rules_source,
+            "rules_generated_at": rules_generated_at,
+        }
+    )
+    source_path.write_text(updated.model_dump_json(indent=2), encoding="utf-8")
+
+
 def _start_url_run(
     url: str,
     source_type: str,
@@ -1088,18 +1109,36 @@ def _migrate_url_flow(
         notion_target=notion_target,
     )
 
-    rules_path = Path("output") / "rules.json"
-    if rediscover or not rules_path.exists():
+    output_base = Path("output")
+    rules_path = output_base / "rules.json"
+
+    rules_source: Literal["reused", "regenerated", "generated"]
+    if not rules_path.exists():
+        rules_source = "generated"
+    elif rediscover:
+        rules_source = "regenerated"
+    else:
+        rules_source = "reused"
+
+    if rules_source in ("regenerated", "generated"):
+        if rules_source == "regenerated":
+            backup_rules_json(output_base)
         update_step(run_dir, "discover", StepStatus.RUNNING)
         try:
             _run_discover(run_dir, url)
         except typer.Exit:
             update_step(run_dir, "discover", StepStatus.FAILED)
+            _persist_rules_source(
+                run_dir, rules_source, read_rules_meta(output_base)
+            )
             finalize_run(run_dir)
             raise
+        write_rules_meta(output_base, datetime.now(UTC).isoformat())
         update_step(run_dir, "discover", StepStatus.DONE)
     else:
         update_step(run_dir, "discover", StepStatus.SKIPPED)
+
+    _persist_rules_source(run_dir, rules_source, read_rules_meta(output_base))
 
     if not rules_path.exists():
         console.print(f"[red]Rules file missing after discover: {rules_path}[/red]")
