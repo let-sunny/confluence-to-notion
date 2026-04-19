@@ -15,6 +15,12 @@ from confluence_to_notion.cli import _extract_title, app
 from confluence_to_notion.converter.schemas import ConversionResult
 from confluence_to_notion.notion.schemas import NotionPageResult
 
+_REDISCOVER_URL = (
+    "https://example.atlassian.net/wiki/spaces/ENG/pages/12345/Some-Title"
+)
+_RULES_PAYLOAD_EXISTING = '{"source": "existing", "rules": []}'
+_RULES_PAYLOAD_NEW = '{"source": "regenerated", "rules": []}'
+
 runner = CliRunner()
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "migrate"
@@ -480,3 +486,192 @@ class TestMigrateWithUrl:
         assert status["migrate"]["status"] == "failed"
 
         assert (run_dir / "report.md").exists()
+
+
+def _discover_stub_factory(
+    payload: str = _RULES_PAYLOAD_NEW,
+) -> Any:
+    """Return a stub that mimics scripts/discover.sh writing output/rules.json."""
+
+    def stub(run_dir: Path, url: str) -> None:
+        output = Path("output")
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "rules.json").write_text(payload)
+
+    return stub
+
+
+class TestRediscoverPolicy:
+    """_migrate_url_flow: --rediscover + rules.json presence ⇒ rules_source matrix."""
+
+    _URL = _REDISCOVER_URL
+    _RUN_DIR_REL = Path("output") / "runs" / "example-12345"
+
+    def _seed_rules(self) -> None:
+        output = Path("output")
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "rules.json").write_text(_RULES_PAYLOAD_EXISTING)
+
+    def _source(self, tmp_path: Path) -> dict[str, Any]:
+        return json.loads(
+            (tmp_path / self._RUN_DIR_REL / "source.json").read_text(encoding="utf-8")
+        )
+
+    @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
+    @patch("confluence_to_notion.cli._load_settings")
+    def test_rules_missing_no_flag_generates(
+        self,
+        mock_settings: Any,
+        mock_dispatch: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        settings = mock_settings.return_value
+        settings.notion_root_page_id = "root"
+        settings.require_notion.return_value = None
+        monkeypatch.setattr(
+            "confluence_to_notion.cli._run_discover", _discover_stub_factory()
+        )
+
+        result = runner.invoke(app, ["migrate", self._URL, "--dry-run"])
+        assert result.exit_code == 0, result.output
+
+        source = self._source(tmp_path)
+        assert source["rules_source"] == "generated"
+        assert source["rules_generated_at"] is not None
+
+        report = (tmp_path / self._RUN_DIR_REL / "report.md").read_text()
+        assert "## Rules source" in report
+        assert "- source: generated" in report
+
+        # No prev-* backup on first-time generation.
+        assert not list((tmp_path / "output").glob("rules.json.prev-*"))
+
+    @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
+    @patch("confluence_to_notion.cli._load_settings")
+    def test_rules_exists_no_flag_reuses(
+        self,
+        mock_settings: Any,
+        mock_dispatch: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        settings = mock_settings.return_value
+        settings.notion_root_page_id = "root"
+        settings.require_notion.return_value = None
+        self._seed_rules()
+        called: list[bool] = []
+
+        def _fail(run_dir: Path, url: str) -> None:
+            called.append(True)
+            raise AssertionError("discover must not be invoked on reuse path")
+
+        monkeypatch.setattr("confluence_to_notion.cli._run_discover", _fail)
+
+        result = runner.invoke(app, ["migrate", self._URL, "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert called == []
+
+        source = self._source(tmp_path)
+        assert source["rules_source"] == "reused"
+
+        report = (tmp_path / self._RUN_DIR_REL / "report.md").read_text()
+        assert "- source: reused" in report
+
+        # Reuse must not create a backup.
+        assert not list((tmp_path / "output").glob("rules.json.prev-*"))
+
+    @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
+    @patch("confluence_to_notion.cli._load_settings")
+    def test_rules_exists_rediscover_regenerates_with_backup(
+        self,
+        mock_settings: Any,
+        mock_dispatch: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        settings = mock_settings.return_value
+        settings.notion_root_page_id = "root"
+        settings.require_notion.return_value = None
+        self._seed_rules()
+        monkeypatch.setattr(
+            "confluence_to_notion.cli._run_discover", _discover_stub_factory()
+        )
+
+        result = runner.invoke(
+            app, ["migrate", self._URL, "--rediscover", "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+
+        source = self._source(tmp_path)
+        assert source["rules_source"] == "regenerated"
+        assert source["rules_generated_at"] is not None
+
+        report = (tmp_path / self._RUN_DIR_REL / "report.md").read_text()
+        assert "- source: regenerated" in report
+
+        backups = list((tmp_path / "output").glob("rules.json.prev-*"))
+        assert len(backups) == 1
+        # Backup captures the pre-regenerate content.
+        assert backups[0].read_text() == _RULES_PAYLOAD_EXISTING
+        # Current rules.json is the newly generated content.
+        assert (tmp_path / "output" / "rules.json").read_text() == _RULES_PAYLOAD_NEW
+
+    @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
+    @patch("confluence_to_notion.cli._load_settings")
+    def test_rules_missing_rediscover_still_generates(
+        self,
+        mock_settings: Any,
+        mock_dispatch: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        settings = mock_settings.return_value
+        settings.notion_root_page_id = "root"
+        settings.require_notion.return_value = None
+        monkeypatch.setattr(
+            "confluence_to_notion.cli._run_discover", _discover_stub_factory()
+        )
+
+        result = runner.invoke(
+            app, ["migrate", self._URL, "--rediscover", "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+
+        source = self._source(tmp_path)
+        # rules.json was absent: this is 'generated', not 'regenerated', even with --rediscover.
+        assert source["rules_source"] == "generated"
+
+        # No backup since there was nothing to rotate.
+        assert not list((tmp_path / "output").glob("rules.json.prev-*"))
+
+    @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
+    @patch("confluence_to_notion.cli._load_settings")
+    def test_two_regenerations_keep_single_backup(
+        self,
+        mock_settings: Any,
+        mock_dispatch: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        settings = mock_settings.return_value
+        settings.notion_root_page_id = "root"
+        settings.require_notion.return_value = None
+        self._seed_rules()
+        monkeypatch.setattr(
+            "confluence_to_notion.cli._run_discover", _discover_stub_factory()
+        )
+
+        first = runner.invoke(
+            app, ["migrate", self._URL, "--rediscover", "--dry-run"]
+        )
+        assert first.exit_code == 0, first.output
+
+        # Second --rediscover rotates the previous backup.
+        second = runner.invoke(
+            app, ["migrate", self._URL, "--rediscover", "--dry-run"]
+        )
+        assert second.exit_code == 0, second.output
+
+        backups = list((tmp_path / "output").glob("rules.json.prev-*"))
+        assert len(backups) == 1

@@ -104,3 +104,72 @@ class TestRenderReport:
         result = render_report(source, RunStatus())
         assert isinstance(result, str)
         assert result.startswith("#")  # at least one Markdown heading
+
+
+class TestRulesSourceSection:
+    """render_report emits '## Rules source' when source.rules_source is set."""
+
+    def _source(
+        self,
+        *,
+        rules_source: str | None = None,
+        rules_generated_at: str | None = None,
+    ) -> SourceInfo:
+        return SourceInfo(
+            url="https://example.atlassian.net/wiki/spaces/ENG/pages/123",
+            type="page",
+            rules_source=rules_source,  # type: ignore[arg-type]
+            rules_generated_at=rules_generated_at,
+        )
+
+    def test_omits_section_when_rules_source_is_none(self) -> None:
+        report = render_report(self._source(), RunStatus())
+        assert "## Rules source" not in report
+
+    def test_reused_emits_source_bullet(self) -> None:
+        report = render_report(self._source(rules_source="reused"), RunStatus())
+        assert "## Rules source" in report
+        assert "- source: reused" in report
+
+    def test_regenerated_emits_source_bullet(self) -> None:
+        report = render_report(self._source(rules_source="regenerated"), RunStatus())
+        assert "## Rules source" in report
+        assert "- source: regenerated" in report
+
+    def test_generated_emits_source_bullet(self) -> None:
+        report = render_report(self._source(rules_source="generated"), RunStatus())
+        assert "## Rules source" in report
+        assert "- source: generated" in report
+
+    def test_reused_with_generated_at(self) -> None:
+        report = render_report(
+            self._source(
+                rules_source="reused",
+                rules_generated_at="2026-04-19T12:00:00+00:00",
+            ),
+            RunStatus(),
+        )
+        assert "## Rules source" in report
+        assert "- source: reused" in report
+        assert "- last generated_at: 2026-04-19T12:00:00+00:00" in report
+
+    def test_generated_at_alone_without_source_is_omitted(self) -> None:
+        # When rules_source is None, the entire section — including any
+        # dangling generated_at — must be omitted.
+        report = render_report(
+            self._source(rules_generated_at="2026-04-19T12:00:00+00:00"),
+            RunStatus(),
+        )
+        assert "## Rules source" not in report
+        assert "generated_at" not in report
+
+    def test_section_placed_between_steps_and_rules_usage(self) -> None:
+        report = render_report(
+            self._source(rules_source="generated"),
+            RunStatus(),
+            rules_summary="- rule:macro:toc: 1",
+        )
+        steps_idx = report.index("## Steps")
+        rules_source_idx = report.index("## Rules source")
+        rules_usage_idx = report.index("## Rules usage")
+        assert steps_idx < rules_source_idx < rules_usage_idx
