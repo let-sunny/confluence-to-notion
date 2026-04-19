@@ -512,11 +512,10 @@ class TestRediscoverPolicy:
         output.mkdir(parents=True, exist_ok=True)
         (output / "rules.json").write_text(_RULES_PAYLOAD_EXISTING)
 
-    def _source(self, tmp_path: Path, *, suffix: str = "") -> dict[str, Any]:
-        run_dir = tmp_path / self._RUN_DIR_REL.with_name(
-            f"example-12345{suffix}"
-        ) if suffix else tmp_path / self._RUN_DIR_REL
-        return json.loads((run_dir / "source.json").read_text(encoding="utf-8"))
+    def _source(self, tmp_path: Path) -> dict[str, Any]:
+        return json.loads(
+            (tmp_path / self._RUN_DIR_REL / "source.json").read_text(encoding="utf-8")
+        )
 
     @patch("confluence_to_notion.cli._run_page_dispatch", return_value=None)
     @patch("confluence_to_notion.cli._load_settings")

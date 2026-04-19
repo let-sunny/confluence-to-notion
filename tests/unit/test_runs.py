@@ -237,7 +237,7 @@ class TestRunLifecycle:
         assert "- rule:macro:jira: 1" in report
 
 
-_PREV_RE = re.compile(r"^rules\.json\.prev-\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+_PREV_RE = re.compile(r"^rules\.json\.prev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}")
 
 
 class TestRulesMeta:

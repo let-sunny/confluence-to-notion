@@ -287,7 +287,7 @@ def backup_rules_json(output_dir: Path) -> Path | None:
     rules_path = output_dir / "rules.json"
     if not rules_path.is_file():
         return None
-    timestamp = datetime.now(UTC).isoformat()
+    timestamp = datetime.now(UTC).isoformat().replace(":", "-")
     backup = output_dir / f"{_RULES_BACKUP_PREFIX}{timestamp}"
     shutil.copy2(rules_path, backup)
     for sibling in output_dir.glob(f"{_RULES_BACKUP_PREFIX}*"):
