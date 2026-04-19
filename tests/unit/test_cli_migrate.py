@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import click
 import httpx
 import pytest
 from notion_client import APIResponseError
@@ -17,6 +18,17 @@ from confluence_to_notion.notion.schemas import NotionPageResult
 runner = CliRunner()
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "migrate"
+
+_MIGRATE_URL = (
+    "https://example.atlassian.net/wiki/spaces/ENG/pages/12345/Some-Title"
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Run every test in a tmp cwd so ``output/`` stays isolated per test."""
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
 
 
 def _make_api_error(status: int, message: str) -> APIResponseError:
@@ -93,7 +105,7 @@ class TestMigrateHappyPath:
         result = runner.invoke(
             app,
             [
-                "migrate", "--rules", str(rules_file),
+                "migrate", "--url", _MIGRATE_URL, "--rules", str(rules_file),
                 "--input", str(input_dir), "--target", "target-page-id",
             ],
         )
@@ -134,7 +146,10 @@ class TestMigrateHappyPath:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(rules_file), "--input", str(input_dir)],
+            [
+                "migrate", "--url", _MIGRATE_URL, "--rules", str(rules_file),
+                "--input", str(input_dir),
+            ],
         )
 
         assert result.exit_code == 0, result.output
@@ -180,7 +195,10 @@ class TestMigrateErrorHandling:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", "t"],
+            [
+                "migrate", "--url", _MIGRATE_URL, "--rules", str(rules_file),
+                "--input", str(input_dir), "--target", "t",
+            ],
         )
 
         # Partial failure → exit code 1
@@ -231,7 +249,10 @@ class TestMigrateValidation:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(rules_file), "--input", str(input_dir)],
+            [
+                "migrate", "--url", _MIGRATE_URL, "--rules", str(rules_file),
+                "--input", str(input_dir),
+            ],
         )
         assert result.exit_code != 0
 
@@ -281,25 +302,49 @@ class TestMigrateEmptyDirectory:
 
         result = runner.invoke(
             app,
-            ["migrate", "--rules", str(rules_file), "--input", str(input_dir), "--target", "t"],
+            [
+                "migrate", "--url", _MIGRATE_URL, "--rules", str(rules_file),
+                "--input", str(input_dir), "--target", "t",
+            ],
         )
         assert result.exit_code != 0
+
+
+class TestMigrateRequiresUrl:
+    """`cli migrate` without --url must fail and never create output/runs/."""
+
+    def test_migrate_requires_url(self, tmp_path: Path) -> None:
+        rules_file = tmp_path / "rules.json"
+        rules_file.write_text('{"source": "test", "rules": []}')
+
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        (input_dir / "page.xhtml").write_text("<h1>Hello</h1>")
+
+        result = runner.invoke(
+            app,
+            [
+                "migrate",
+                "--rules",
+                str(rules_file),
+                "--input",
+                str(input_dir),
+                "--target",
+                "target-page-id",
+            ],
+            standalone_mode=False,
+        )
+
+        assert result.exit_code != 0
+        assert isinstance(result.exception, click.exceptions.UsageError)
+        assert "--url" in str(result.exception)
+        assert not (tmp_path / "output" / "runs").exists()
 
 
 class TestMigrateWithUrl:
     """`cli migrate --url ...` writes artifacts under output/runs/<slug>/."""
 
-    _URL = (
-        "https://example.atlassian.net/wiki/spaces/ENG/pages/12345/Some-Title"
-    )
-
-    @pytest.fixture(autouse=True)
-    def _isolate_cwd(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> Path:
-        """Run every --url test in a tmp cwd so ``output/`` is isolated."""
-        monkeypatch.chdir(tmp_path)
-        return tmp_path
+    _URL = _MIGRATE_URL
 
     def _seed_rules(self, tmp_path: Path) -> Path:
         rules_path = tmp_path / "rules.json"
