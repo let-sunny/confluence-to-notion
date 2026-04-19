@@ -946,6 +946,133 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
     assert url in report_text
 
 
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_migrate_tree_pages_report_has_summed_rules_usage(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    tmp_path: Path,
+) -> None:
+    """Pass-2 used_rules counts are summed across pages and rendered into report.md."""
+    tree = PageTreeNode(
+        id="root",
+        title="Root Page",
+        children=[
+            PageTreeNode(id="c1", title="Child 1"),
+            PageTreeNode(id="c2", title="Child 2"),
+        ],
+    )
+    bodies = {
+        "root": "<p>root body</p>",
+        "c1": "<p>page A</p>",
+        "c2": "<p>page B</p>",
+    }
+    used_rules_per_body = {
+        "<p>root body</p>": {},
+        "<p>page A</p>": {"rule:macro:toc": 1, "rule:macro:jira": 1},
+        "<p>page B</p>": {"rule:macro:toc": 2},
+    }
+
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, bodies)
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    def _side(
+        xhtml: str,
+        ruleset: Any,
+        *,
+        page_id: str = "",
+        store: Any = None,
+        table_rules: Any = None,
+    ) -> ConversionResult:
+        return ConversionResult(
+            blocks=[{"object": "block", "type": "paragraph"}],
+            unresolved=[],
+            used_rules=dict(used_rules_per_body.get(xhtml, {})),
+        )
+
+    mock_convert.side_effect = _side
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--url",
+            "https://example.atlassian.net/wiki/spaces/TEST/pages/root",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    run_dir = _only_run_dir(tmp_path)
+    report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Rules usage" in report_text
+    assert "- rule:macro:jira: 1" in report_text
+    assert "- rule:macro:toc: 3" in report_text
+    # Sorted alphabetically: jira before toc.
+    jira_pos = report_text.index("- rule:macro:jira: 1")
+    toc_pos = report_text.index("- rule:macro:toc: 3")
+    assert jira_pos < toc_pos
+
+
+@patch("confluence_to_notion.cli.convert_page")
+@patch("confluence_to_notion.cli.NotionClientWrapper")
+@patch("confluence_to_notion.cli.ConfluenceClient")
+@patch("confluence_to_notion.cli._load_settings")
+def test_migrate_tree_pages_report_omits_rules_usage_when_empty(
+    mock_settings: Any,
+    mock_conf_cls: Any,
+    mock_notion_cls: Any,
+    mock_convert: Any,
+    tmp_path: Path,
+) -> None:
+    """When every Pass-2 convert_page returns empty used_rules, no Rules usage section."""
+    mock_settings.return_value = _make_settings_mock()
+    mock_conf_cls.return_value = _build_confluence_mock(_fixture_tree())
+    mock_notion_cls.return_value = _build_notion_mock()
+
+    mock_convert.return_value = ConversionResult(
+        blocks=[{"object": "block", "type": "paragraph"}],
+        unresolved=[],
+        used_rules={},
+    )
+
+    rules_path = tmp_path / "rules.json"
+    _write_rules(rules_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "migrate-tree-pages",
+            "--root-id",
+            "root",
+            "--target",
+            "parent-xyz",
+            "--rules",
+            str(rules_path),
+            "--url",
+            "https://example.atlassian.net/wiki/spaces/TEST/pages/root",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    run_dir = _only_run_dir(tmp_path)
+    report_text = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert "## Rules usage" not in report_text
+
+
 @patch("confluence_to_notion.cli._prompt_table_rule")
 @patch("confluence_to_notion.cli.convert_page")
 @patch("confluence_to_notion.cli.NotionClientWrapper")

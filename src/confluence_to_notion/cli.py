@@ -29,6 +29,7 @@ from confluence_to_notion.notion.client import NotionClientWrapper
 from confluence_to_notion.runs import (
     StepStatus,
     finalize_run,
+    format_rules_summary,
     start_run,
     update_step,
 )
@@ -389,10 +390,13 @@ def convert(
 
     try:
         converted = 0
+        used_rules_total: dict[str, int] = {}
         try:
             for xhtml_path in xhtml_files:
                 xhtml = xhtml_path.read_text()
                 result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
+                for rule_id, count in result.used_rules.items():
+                    used_rules_total[rule_id] = used_rules_total.get(rule_id, 0) + count
                 out_file = target_dir / f"{xhtml_path.stem}.json"
                 out_file.write_text(
                     json.dumps(result.blocks, indent=2, ensure_ascii=False) + "\n"
@@ -409,7 +413,7 @@ def convert(
 
         console.print(f"[green]Converted {converted} pages → {target_dir}[/green]")
     finally:
-        finalize_run(run_dir)
+        finalize_run(run_dir, rules_summary=format_rules_summary(used_rules_total))
 
 
 @app.command()
@@ -477,6 +481,7 @@ def migrate(
         raise typer.Exit(code=1) from None
 
     client = NotionClientWrapper(settings)
+    used_rules_total: dict[str, int] = {}
 
     async def _migrate() -> tuple[int, int]:
         from rich.progress import Progress
@@ -491,6 +496,10 @@ def migrate(
                 try:
                     xhtml = xhtml_path.read_text()
                     result = convert_page(xhtml, ruleset, page_id=xhtml_path.stem)
+                    for rule_id, count in result.used_rules.items():
+                        used_rules_total[rule_id] = (
+                            used_rules_total.get(rule_id, 0) + count
+                        )
                     title = _extract_title(result.blocks, fallback=xhtml_path.stem)
 
                     await client.create_page(
@@ -556,7 +565,9 @@ def migrate(
             raise typer.Exit(code=1)
     finally:
         if run_dir is not None:
-            finalize_run(run_dir)
+            finalize_run(
+                run_dir, rules_summary=format_rules_summary(used_rules_total)
+            )
 
 
 @app.command(name="migrate-tree")
@@ -742,6 +753,7 @@ def migrate_tree_pages(
     confluence = ConfluenceClient(settings)
     notion = NotionClientWrapper(settings)
     table_rule_store = TableRuleStore(table_rules_path)
+    used_rules_total: dict[str, int] = {}
 
     async def _run() -> tuple[int, int]:
         update_step(run_dir, "fetch", StepStatus.RUNNING)
@@ -873,6 +885,10 @@ def migrate_tree_pages(
                             store=store,
                             table_rules=table_rule_store,
                         )
+                        for rule_id, count in result.used_rules.items():
+                            used_rules_total[rule_id] = (
+                                used_rules_total.get(rule_id, 0) + count
+                            )
                         (converted_dir / f"{confluence_id}.json").write_text(
                             json.dumps(
                                 result.blocks, indent=2, ensure_ascii=False
@@ -924,7 +940,7 @@ def migrate_tree_pages(
         if failed > 0:
             raise typer.Exit(code=1)
     finally:
-        finalize_run(run_dir)
+        finalize_run(run_dir, rules_summary=format_rules_summary(used_rules_total))
 
 
 def _prompt_table_rule(

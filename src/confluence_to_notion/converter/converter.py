@@ -65,7 +65,13 @@ class _ConversionContext:
     store: ResolutionStore | None = None
     table_rules: TableRuleStore | None = None
     unresolved: list[UnresolvedItem] = field(default_factory=list)
+    used_rules: dict[str, int] = field(default_factory=dict)
     table_index: int = 0
+
+
+def _mark_rule_used(ctx: _ConversionContext, rule_id: str) -> None:
+    """Increment the per-rule match counter on ``ctx``."""
+    ctx.used_rules[rule_id] = ctx.used_rules.get(rule_id, 0) + 1
 
 
 def convert_page(
@@ -114,7 +120,11 @@ def convert_page(
             input_size / 1024,
         )
 
-    return ConversionResult(blocks=blocks, unresolved=ctx.unresolved)
+    return ConversionResult(
+        blocks=blocks,
+        unresolved=ctx.unresolved,
+        used_rules=ctx.used_rules,
+    )
 
 
 def _convert_children(
@@ -308,6 +318,7 @@ def _extract_inline_macro(
     macro_name = _get_macro_name(elem)
 
     if macro_name == "jira" and "rule:macro:jira" in ctx.enabled_ids:
+        _mark_rule_used(ctx, "rule:macro:jira")
         return _jira_rich_text(elem)
 
     # Unknown inline macro: extract any text
@@ -356,22 +367,27 @@ def _convert_macro(
 
     # TOC
     if macro_name == "toc" and "rule:macro:toc" in ctx.enabled_ids:
+        _mark_rule_used(ctx, "rule:macro:toc")
         return [{"type": "table_of_contents", "table_of_contents": {"color": "default"}}]
 
     # JIRA
     if macro_name == "jira" and "rule:macro:jira" in ctx.enabled_ids:
+        _mark_rule_used(ctx, "rule:macro:jira")
         return [_paragraph(_jira_rich_text(elem))]
 
     # Code / noformat
     if macro_name in ("code", "noformat") and "rule:macro:code" in ctx.enabled_ids:
+        _mark_rule_used(ctx, "rule:macro:code")
         return _convert_code_macro(elem)
 
     # Expand (toggle)
     if macro_name == "expand" and "rule:macro:expand" in ctx.enabled_ids:
+        _mark_rule_used(ctx, "rule:macro:expand")
         return _convert_expand_macro(elem, ctx)
 
     # Info/Note/Warning/Tip panels
     if macro_name in _PANEL_STYLES and f"rule:macro:{macro_name}" in ctx.enabled_ids:
+        _mark_rule_used(ctx, f"rule:macro:{macro_name}")
         return _convert_panel_macro(elem, macro_name, ctx)
     # Also handle panels without explicit rules (built-in behavior for info-family macros)
     if macro_name in _PANEL_STYLES:
@@ -553,6 +569,7 @@ def _convert_ac_image(
     if "rule:element:ac-image" not in ctx.enabled_ids:
         return [_paragraph([_text_seg("[image]")])]
 
+    _mark_rule_used(ctx, "rule:element:ac-image")
     filename = ""
     for child in elem:
         if _local_tag(child) == "attachment":

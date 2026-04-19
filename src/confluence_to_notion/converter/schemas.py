@@ -79,6 +79,10 @@ class ConversionResult(BaseModel):
         default_factory=list,
         description="Elements the converter couldn't handle deterministically",
     )
+    used_rules: dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of enabled rules that matched during conversion, keyed by rule_id",
+    )
 
 
 class TableRule(BaseModel):
