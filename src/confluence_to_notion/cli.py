@@ -578,6 +578,11 @@ def migrate_tree(
         "--resolution-out",
         help="Where to persist title→Notion page ID mapping",
     ),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Create an empty Notion page hierarchy mirroring a Confluence tree.
 
@@ -585,6 +590,10 @@ def migrate_tree(
     page for each node under --target (or NOTION_ROOT_PAGE_ID), and persists
     the resulting ``title → notion_page_id`` mapping to the resolution store
     so that later conversion passes can resolve internal page links.
+
+    When --url is provided, resolution.json lands under ``output/runs/<slug>/``
+    alongside source.json, status.json, and report.md; ``--resolution-out`` is
+    ignored in that mode.
     """
     if not tree.exists():
         console.print(f"[red]Tree file not found: {tree}[/red]")
@@ -615,27 +624,51 @@ def migrate_tree(
 
     client = NotionClientWrapper(settings)
 
+    run_dir: Path | None = None
+    resolution_path = resolution_out
+    if url is not None:
+        run_dir, _ = start_run(
+            Path("output"),
+            url,
+            "tree",
+            root_id=tree_node.id,
+            notion_target={"page_id": parent_id},
+        )
+        resolution_path = run_dir / "resolution.json"
+        update_step(run_dir, "migrate", StepStatus.RUNNING)
+
     async def _run() -> dict[str, str]:
         return await client.create_page_tree(parent_id=parent_id, tree=tree_node)
 
     try:
-        mapping = asyncio.run(_run())
-    except APIResponseError as e:
-        console.print(f"[red]Notion API error {e.status} — {e.body}[/red]")
-        raise typer.Exit(code=1) from None
+        try:
+            mapping = asyncio.run(_run())
+        except APIResponseError as e:
+            if run_dir is not None:
+                update_step(run_dir, "migrate", StepStatus.FAILED)
+            console.print(f"[red]Notion API error {e.status} — {e.body}[/red]")
+            raise typer.Exit(code=1) from None
 
-    store = ResolutionStore(resolution_out)
-    for title, notion_page_id in mapping.items():
-        store.add(
-            key=f"page_link:{title}",
-            resolved_by="notion_migration",
-            value={"notion_page_id": notion_page_id},
+        store = ResolutionStore(resolution_path)
+        for title, notion_page_id in mapping.items():
+            store.add(
+                key=f"page_link:{title}",
+                resolved_by="notion_migration",
+                value={"notion_page_id": notion_page_id},
+            )
+        store.save()
+
+        if run_dir is not None:
+            update_step(
+                run_dir, "migrate", StepStatus.DONE, count=len(mapping)
+            )
+
+        console.print(
+            f"[green]Created {len(mapping)} Notion pages → {resolution_path}[/green]"
         )
-    store.save()
-
-    console.print(
-        f"[green]Created {len(mapping)} Notion pages → {resolution_out}[/green]"
-    )
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
 
 
 @app.command(name="migrate-tree-pages")
