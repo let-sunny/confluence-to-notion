@@ -427,11 +427,21 @@ def migrate(
     target: str | None = typer.Option(
         None, "--target", help="Notion parent page ID (fallback: NOTION_ROOT_PAGE_ID)"
     ),
+    url: str | None = typer.Option(
+        None,
+        "--url",
+        help="Confluence source URL; when set, writes artifacts to output/runs/<slug>/",
+    ),
 ) -> None:
     """Convert XHTML pages and publish them to Notion.
 
+    When --url is provided, status.json and report.md land under
+    ``output/runs/<slug>/`` alongside source.json; otherwise no run-dir
+    artifacts are written.
+
     Examples:
         cli migrate --rules output/rules.json --input samples/ --target <page-id>
+        cli migrate --url <confluence-url> --rules output/rules.json --input samples/
         cli migrate  # uses defaults + NOTION_ROOT_PAGE_ID from .env
     """
     from confluence_to_notion.agents.schemas import FinalRuleset
@@ -506,11 +516,48 @@ def migrate(
 
         return succeeded, failed
 
-    succeeded, failed = asyncio.run(_migrate())
-    console.print(f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]")
+    run_dir: Path | None = None
+    if url is not None:
+        run_dir, _ = start_run(
+            Path("output"),
+            url,
+            "page",
+            root_id=None,
+            notion_target={"page_id": parent_id},
+        )
+        update_step(run_dir, "migrate", StepStatus.RUNNING)
 
-    if failed > 0:
-        raise typer.Exit(code=1)
+    try:
+        try:
+            succeeded, failed = asyncio.run(_migrate())
+        except (APIResponseError, OSError, ValueError, KeyError):
+            if run_dir is not None:
+                update_step(run_dir, "migrate", StepStatus.FAILED)
+            raise
+
+        if run_dir is not None:
+            if failed > 0:
+                update_step(
+                    run_dir,
+                    "migrate",
+                    StepStatus.FAILED,
+                    count=succeeded,
+                    warnings=failed,
+                )
+            else:
+                update_step(
+                    run_dir, "migrate", StepStatus.DONE, count=succeeded
+                )
+
+        console.print(
+            f"\n[green]Succeeded: {succeeded}[/green] | [red]Failed: {failed}[/red]"
+        )
+
+        if failed > 0:
+            raise typer.Exit(code=1)
+    finally:
+        if run_dir is not None:
+            finalize_run(run_dir)
 
 
 @app.command(name="migrate-tree")
