@@ -27,6 +27,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "rich>=13.0.0",
+    "mcp>=1.27.0",
 ]
 
 [dependency-groups]
@@ -44,6 +45,7 @@ Issues = "https://github.com/let-sunny/confluence-to-notion/issues"
 
 [project.scripts]
 c2n = "confluence_to_notion.cli:app"
+c2n-mcp = "confluence_to_notion.mcp_server:main"
 
 [tool.ruff]
 line-length = 100
