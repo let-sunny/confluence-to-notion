@@ -536,17 +536,20 @@ def migrate(
             raise
 
         if run_dir is not None:
-            if failed > 0:
+            if succeeded == 0 and failed > 0:
                 update_step(
                     run_dir,
                     "migrate",
                     StepStatus.FAILED,
-                    count=succeeded,
                     warnings=failed,
                 )
             else:
                 update_step(
-                    run_dir, "migrate", StepStatus.DONE, count=succeeded
+                    run_dir,
+                    "migrate",
+                    StepStatus.DONE,
+                    count=succeeded,
+                    warnings=failed if failed > 0 else None,
                 )
 
         console.print(
