@@ -185,7 +185,7 @@ Run `uv run c2n <command> --help` for the full option list.
 1. `.env` 를 채우고 `uv sync` 로 의존성을 맞춘다.
 2. MCP 패널에서 `c2n_resolve_url` 로 붙여넣은 Confluence URL 분류를 확인한다.
 3. `c2n_migrate` 에 같은 URL을 넘겨 한 번에 fetch → discover(필요 시) → convert → Notion 까지 돌린다 (`dry_run: true` 로 먼저 아티팩트만 확인할 수 있다).
-4. `c2n_list_runs` / `c2n_status` 또는 `c2n://runs/<slug>/report` 리소스로 결과를 읽는다.
+4. `c2n_list_runs` 로 방금 생긴 런의 **slug** 를 확인한 뒤, `c2n_status(slug=…)` 또는 `c2n://runs/<slug>/report` 리소스로 상태·리포트를 읽는다. (도구 응답은 `{returncode, stdout}` 이므로 slug는 목록/리소스에서 회수한다.)
 
 저수준 단계만 쪼개서 돌리려면 `c2n_fetch` → `c2n_discover` → `c2n_convert` → `c2n_push` 순으로 호출하면 CLI와 동일한 파이프라인을 재구성할 수 있다.
 

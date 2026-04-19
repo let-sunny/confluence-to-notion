@@ -342,6 +342,57 @@ async def test_c2n_fetch_handler_requires_space_or_pages() -> None:
         await _c2n_fetch_handler()
 
 
+async def test_c2n_fetch_handler_space_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append(list(args))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "fetched", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    out = await _c2n_fetch_handler(space="KAFKA", limit=10, out_dir="samples")
+    assert out["stdout"] == "fetched"
+    assert calls[0] == [
+        "fetch",
+        "--limit",
+        "10",
+        "--out-dir",
+        "samples",
+        "--space",
+        "KAFKA",
+    ]
+
+
+async def test_c2n_fetch_handler_pages_and_url_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append(list(args))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "ok", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    await _c2n_fetch_handler(pages="1,2", url="https://wiki.example/x")
+    assert calls[0] == [
+        "fetch",
+        "--limit",
+        "25",
+        "--out-dir",
+        "samples",
+        "--pages",
+        "1,2",
+        "--url",
+        "https://wiki.example/x",
+    ]
+
+
 async def test_run_uv_c2n_sync_monkeypatched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
