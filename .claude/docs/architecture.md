@@ -50,7 +50,7 @@ graph TD
 
 Two runtime layers, each with a clear responsibility:
 
-### 1. Python CLI (`uv run cli ...`)
+### 1. Python CLI (`uv run c2n ...`)
 
 Handles I/O with external APIs. Deterministic, testable, typed.
 
