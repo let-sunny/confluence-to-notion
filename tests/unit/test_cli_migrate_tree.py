@@ -57,28 +57,19 @@ def _make_settings_mock(
     )
 
 
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli._load_settings")
-def test_migrate_tree_creates_hierarchy_and_writes_mapping(
-    mock_settings: Any,
-    mock_client_cls: Any,
-    tmp_path: Path,
-) -> None:
-    """migrate-tree walks the tree, calls create_page_tree, and persists mappings."""
-    mock_settings.return_value = _make_settings_mock()
+_URL = "https://example.atlassian.net/wiki/spaces/ENG/pages/12345/Some-Title"
 
-    mock_client = mock_client_cls.return_value
-    mapping = {
-        "Root Page": "np-root",
-        "Child 1": "np-c1",
-        "Child 2": "np-c2",
-        "Grandchild 1": "np-gc1",
-    }
-    mock_client.create_page_tree = AsyncMock(return_value=mapping)
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run tests in a temporary cwd so default output paths don't collide."""
+    monkeypatch.chdir(tmp_path)
+
+
+def test_migrate_tree_without_url_exits(tmp_path: Path) -> None:
+    """Without --url, migrate-tree must fail and never create output/resolution.json."""
     tree_path = tmp_path / "page-tree.json"
     _write_tree(tree_path, _fixture_tree())
-    resolution_path = tmp_path / "resolution.json"
 
     result = runner.invoke(
         app,
@@ -88,35 +79,13 @@ def test_migrate_tree_creates_hierarchy_and_writes_mapping(
             str(tree_path),
             "--target",
             "parent-xyz",
-            "--resolution-out",
-            str(resolution_path),
         ],
     )
 
-    assert result.exit_code == 0, result.output
-
-    mock_client.create_page_tree.assert_awaited_once()
-    call_kwargs = mock_client.create_page_tree.await_args.kwargs
-    call_args = mock_client.create_page_tree.await_args.args
-    passed_parent = call_kwargs.get("parent_id", call_args[0] if call_args else None)
-    passed_tree = call_kwargs.get(
-        "tree", call_args[1] if len(call_args) > 1 else None
-    )
-    assert passed_parent == "parent-xyz"
-    assert isinstance(passed_tree, PageTreeNode)
-    assert passed_tree.id == "root"
-    assert passed_tree.children[1].children[0].id == "gc1"
-
-    assert resolution_path.exists()
-    store = ResolutionStore(resolution_path)
-    for title, notion_page_id in mapping.items():
-        entry = store.lookup(f"page_link:{title}")
-        assert entry is not None, f"missing entry for {title}"
-        assert entry.resolved_by == "notion_migration"
-        assert entry.value == {"notion_page_id": notion_page_id}
-    child2 = store.lookup("page_link:Child 2")
-    assert child2 is not None
-    assert child2.value["notion_page_id"] == "np-c2"
+    assert result.exit_code != 0
+    assert "--url" in result.output
+    assert not (tmp_path / "output" / "resolution.json").exists()
+    assert not (tmp_path / "output" / "runs").exists()
 
 
 @patch("confluence_to_notion.cli.NotionClientWrapper")
@@ -134,7 +103,6 @@ def test_migrate_tree_uses_settings_root_when_target_omitted(
 
     tree_path = tmp_path / "page-tree.json"
     _write_tree(tree_path, PageTreeNode(id="root", title="Root Page"))
-    resolution_path = tmp_path / "resolution.json"
 
     result = runner.invoke(
         app,
@@ -142,8 +110,8 @@ def test_migrate_tree_uses_settings_root_when_target_omitted(
             "migrate-tree",
             "--tree",
             str(tree_path),
-            "--resolution-out",
-            str(resolution_path),
+            "--url",
+            _URL,
         ],
     )
 
@@ -173,8 +141,8 @@ def test_migrate_tree_missing_target_and_env_exits(
             "migrate-tree",
             "--tree",
             str(tree_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
+            "--url",
+            _URL,
         ],
     )
 
@@ -200,65 +168,16 @@ def test_migrate_tree_missing_tree_file_exits(
             str(tmp_path / "does-not-exist.json"),
             "--target",
             "parent-xyz",
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
+            "--url",
+            _URL,
         ],
     )
 
     assert result.exit_code != 0
-
-
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli._load_settings")
-def test_migrate_tree_handles_notion_api_error(
-    mock_settings: Any,
-    mock_client_cls: Any,
-    tmp_path: Path,
-) -> None:
-    """APIResponseError from Notion is reported with a red error and exit 1."""
-    mock_settings.return_value = _make_settings_mock()
-
-    mock_client = mock_client_cls.return_value
-    api_error = APIResponseError(
-        code="unauthorized",
-        status=401,
-        message="Unauthorized",
-        headers=httpx.Headers(),
-        raw_body_text="Unauthorized",
-    )
-    mock_client.create_page_tree = AsyncMock(side_effect=api_error)
-
-    tree_path = tmp_path / "page-tree.json"
-    _write_tree(tree_path, _fixture_tree())
-
-    result = runner.invoke(
-        app,
-        [
-            "migrate-tree",
-            "--tree",
-            str(tree_path),
-            "--target",
-            "parent-xyz",
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-        ],
-    )
-
-    assert result.exit_code != 0
-
-
-@pytest.fixture(autouse=True)
-def _isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run tests in a temporary cwd so default output paths don't collide."""
-    monkeypatch.chdir(tmp_path)
 
 
 class TestMigrateTreeWithUrl:
     """`cli migrate-tree --url ...` writes artifacts under output/runs/<slug>/."""
-
-    _URL = (
-        "https://example.atlassian.net/wiki/spaces/ENG/pages/12345/Some-Title"
-    )
 
     @patch("confluence_to_notion.cli.NotionClientWrapper")
     @patch("confluence_to_notion.cli._load_settings")
@@ -292,7 +211,7 @@ class TestMigrateTreeWithUrl:
                 "--target",
                 "parent-xyz",
                 "--url",
-                self._URL,
+                _URL,
             ],
         )
 
@@ -302,7 +221,7 @@ class TestMigrateTreeWithUrl:
         assert run_dir.is_dir()
 
         source_data = json.loads((run_dir / "source.json").read_text())
-        assert source_data["url"] == self._URL
+        assert source_data["url"] == _URL
         assert source_data["type"] == "tree"
         assert source_data["root_id"] == "root"
         assert source_data["notion_target"] == {"page_id": "parent-xyz"}
@@ -324,7 +243,7 @@ class TestMigrateTreeWithUrl:
 
         report = (run_dir / "report.md").read_text()
         assert "# Run Report" in report
-        assert self._URL in report
+        assert _URL in report
 
     @patch("confluence_to_notion.cli.NotionClientWrapper")
     @patch("confluence_to_notion.cli._load_settings")
@@ -359,7 +278,7 @@ class TestMigrateTreeWithUrl:
                 "--target",
                 "parent-xyz",
                 "--url",
-                self._URL,
+                _URL,
             ],
         )
 
@@ -372,3 +291,4 @@ class TestMigrateTreeWithUrl:
         assert status["migrate"]["status"] == "failed"
 
         assert (run_dir / "report.md").exists()
+        assert not (tmp_path / "output" / "resolution.json").exists()

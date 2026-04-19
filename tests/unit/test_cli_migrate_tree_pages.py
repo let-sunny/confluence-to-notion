@@ -28,6 +28,10 @@ from confluence_to_notion.runs import SourceInfo, StepStatus, read_status
 runner = CliRunner()
 
 
+# Every CLI test uses this URL; matching slug is "example-root".
+_URL = "https://example.atlassian.net/wiki/spaces/TEST/pages/root"
+
+
 def _fixture_tree() -> PageTreeNode:
     return PageTreeNode(
         id="root",
@@ -89,7 +93,6 @@ def _build_confluence_mock(tree: PageTreeNode) -> Any:
     mock.__aexit__.return_value = None
     mock.collect_page_tree = AsyncMock(return_value=tree)
 
-    # get_page returns a ConfluencePage keyed off page id
     title_for = {
         "root": "Root Page",
         "c1": "Child 1",
@@ -108,7 +111,6 @@ def _build_notion_mock() -> Any:
     """Create a NotionClientWrapper mock whose create_subpage returns np-<id>."""
     mock = AsyncMock()
 
-    # Deterministic id assignment: first call → np-root, etc.
     title_to_id = {
         "Root Page": "np-root",
         "Child 1": "np-c1",
@@ -130,31 +132,21 @@ def _isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-@patch("confluence_to_notion.cli.convert_page")
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli.ConfluenceClient")
-@patch("confluence_to_notion.cli._load_settings")
-def test_migrate_tree_pages_happy_path(
-    mock_settings: Any,
-    mock_conf_cls: Any,
-    mock_notion_cls: Any,
-    mock_convert: Any,
-    tmp_path: Path,
-) -> None:
-    """Happy path: tree is walked, pages are created, bodies uploaded with mention resolution."""
-    mock_settings.return_value = _make_settings_mock()
-    mock_conf_cls.return_value = _build_confluence_mock(_fixture_tree())
-    mock_notion_cls.return_value = _build_notion_mock()
+def _only_run_dir(tmp_path: Path) -> Path:
+    """Return the single run directory under ``tmp_path/output/runs/``."""
+    run_root = tmp_path / "output" / "runs"
+    dirs = [p for p in run_root.iterdir() if p.is_dir()]
+    assert len(dirs) == 1, f"expected exactly one run dir, got {dirs}"
+    return dirs[0]
 
-    mock_convert.return_value = ConversionResult(
-        page_id="",
-        blocks=[{"object": "block", "type": "paragraph"}],
-        unresolved=[],
-    )
 
+# --- --url required guard ---
+
+
+def test_migrate_tree_pages_without_url_exits(tmp_path: Path) -> None:
+    """Without --url, migrate-tree-pages must fail and never write legacy sinks."""
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    resolution_path = tmp_path / "resolution.json"
 
     result = runner.invoke(
         app,
@@ -166,52 +158,17 @@ def test_migrate_tree_pages_happy_path(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(resolution_path),
         ],
     )
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code != 0
+    assert "--url" in result.output
+    assert not (tmp_path / "output" / "resolution.json").exists()
+    assert not (tmp_path / "output" / "rules" / "table-rules.json").exists()
+    assert not (tmp_path / "output" / "runs").exists()
 
-    # 4 pages created, all under correct parents
-    notion_mock = mock_notion_cls.return_value
-    assert notion_mock.create_subpage.await_count == 4
-    # 4 bodies uploaded
-    assert notion_mock.append_blocks.await_count == 4
-    # 4 XHTML fetches
-    conf_mock = mock_conf_cls.return_value
-    assert conf_mock.get_page.await_count == 4
 
-    # Resolution store persisted with page_link:<title> keys
-    assert resolution_path.exists()
-    store = ResolutionStore(resolution_path)
-    for title, notion_id in [
-        ("Root Page", "np-root"),
-        ("Child 1", "np-c1"),
-        ("Child 2", "np-c2"),
-        ("Grandchild 1", "np-gc1"),
-    ]:
-        entry = store.lookup(f"page_link:{title}")
-        assert entry is not None, f"missing entry for {title}"
-        assert entry.value == {"notion_page_id": notion_id}
-
-    # convert_page is called twice per page (Pass 1.5 + Pass 2). Both passes
-    # receive the populated ResolutionStore so internal links resolve.
-    assert mock_convert.call_count == 8
-    for call in mock_convert.call_args_list:
-        store_arg = call.kwargs.get("store")
-        assert store_arg is not None
-        assert isinstance(store_arg, ResolutionStore)
-        # Store must contain all page_link entries BEFORE conversion runs
-        assert store_arg.lookup("page_link:Root Page") is not None
-        assert store_arg.lookup("page_link:Grandchild 1") is not None
-
-    # append_blocks invoked with notion_page_id from the create pass
-    appended_ids = {
-        call.kwargs.get("page_id", call.args[0] if call.args else None)
-        for call in notion_mock.append_blocks.await_args_list
-    }
-    assert appended_ids == {"np-root", "np-c1", "np-c2", "np-gc1"}
+# --- env-root fallback + missing target ---
 
 
 @patch("confluence_to_notion.cli.convert_page")
@@ -246,14 +203,13 @@ def test_migrate_tree_pages_falls_back_to_env_root(
             "root",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
+            "--url",
+            _URL,
         ],
     )
 
     assert result.exit_code == 0, result.output
 
-    # Root is created under env-root
     notion_mock = mock_notion_cls.return_value
     first_call = notion_mock.create_subpage.await_args_list[0]
     parent_id = first_call.kwargs.get(
@@ -287,8 +243,8 @@ def test_migrate_tree_pages_missing_target_and_env_exits(
             "root",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
+            "--url",
+            _URL,
         ],
     )
 
@@ -425,7 +381,6 @@ def test_pass15_dedups_signature_across_pages_and_persists(
 
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    table_rules_path = tmp_path / "table-rules.json"
 
     result = runner.invoke(
         app,
@@ -437,10 +392,8 @@ def test_pass15_dedups_signature_across_pages_and_persists(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(table_rules_path),
+            "--url",
+            _URL,
         ],
     )
     assert result.exit_code == 0, result.output
@@ -448,100 +401,15 @@ def test_pass15_dedups_signature_across_pages_and_persists(
     # Same normalized signature (name|role) across pages → exactly ONE prompt.
     assert mock_prompt.call_count == 1
 
-    # Rule persisted to the configured table-rules file
+    # Rule persisted under the per-run table-rules path.
+    run_dir = _only_run_dir(tmp_path)
+    table_rules_path = run_dir / "rules" / "table-rules.json"
     assert table_rules_path.exists()
     persisted = TableRuleSet.model_validate_json(
         table_rules_path.read_text(encoding="utf-8")
     )
     assert "name|role" in persisted.rules
     assert persisted.rules["name|role"].is_database is True
-
-
-@patch("confluence_to_notion.cli._prompt_table_rule")
-@patch("confluence_to_notion.cli.convert_page")
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli.ConfluenceClient")
-@patch("confluence_to_notion.cli._load_settings")
-def test_pass15_skips_signatures_already_in_store(
-    mock_settings: Any,
-    mock_conf_cls: Any,
-    mock_notion_cls: Any,
-    mock_convert: Any,
-    mock_prompt: Any,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pre-existing entry → no prompt for that signature; only un-matched is prompted."""
-    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
-
-    tree = PageTreeNode(
-        id="root",
-        title="Root Page",
-        children=[
-            PageTreeNode(id="c1", title="Child 1"),
-            PageTreeNode(id="c2", title="Child 2"),
-        ],
-    )
-    body_known = _table_xhtml(["Name", "Role"], [["A", "Dev"]])
-    body_new = _table_xhtml(["Task", "Status"], [["X", "open"]])
-    bodies = {"root": "<p/>", "c1": body_known, "c2": body_new}
-    mock_settings.return_value = _make_settings_mock()
-    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, bodies)
-    mock_notion_cls.return_value = _build_notion_mock()
-
-    # convert_page surfaces both as unresolved; the cli must skip the one already in store.
-    mock_convert.side_effect = _make_convert_side_effect(
-        {
-            body_known: [
-                UnresolvedItem(
-                    kind="table",
-                    identifier="t-c1-0",
-                    source_page_id="c1",
-                    context_xhtml=body_known,
-                )
-            ],
-            body_new: [
-                UnresolvedItem(
-                    kind="table",
-                    identifier="t-c2-0",
-                    source_page_id="c2",
-                    context_xhtml=body_new,
-                )
-            ],
-        }
-    )
-    mock_prompt.return_value = TableRule(is_database=False)
-
-    table_rules_path = tmp_path / "table-rules.json"
-    pre_existing = TableRuleStore(table_rules_path)
-    pre_existing.upsert(["Name", "Role"], TableRule(is_database=False))
-    pre_existing.save()
-
-    rules_path = tmp_path / "rules.json"
-    _write_rules(rules_path)
-
-    result = runner.invoke(
-        app,
-        [
-            "migrate-tree-pages",
-            "--root-id",
-            "root",
-            "--target",
-            "parent-xyz",
-            "--rules",
-            str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(table_rules_path),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-
-    # Only the un-matched signature triggers a prompt.
-    assert mock_prompt.call_count == 1
-    headers_arg = mock_prompt.call_args.kwargs["headers"]
-    assert headers_arg == ["Task", "Status"]
 
 
 @patch("confluence_to_notion.cli._prompt_table_rule")
@@ -608,21 +476,17 @@ def test_pass15_prompt_receives_column_type_draft(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(tmp_path / "table-rules.json"),
+            "--url",
+            _URL,
         ],
     )
     assert result.exit_code == 0, result.output
     assert mock_prompt.call_count == 1
 
-    # Inspect the kwargs passed to _prompt_table_rule.
     kwargs = mock_prompt.call_args.kwargs
     draft = kwargs.get("column_type_draft")
     assert draft is not None, f"missing column_type_draft in kwargs: {kwargs}"
     assert draft.get("Due") == "date"
-    # Sample rows surfaced too so the user sees what they're labelling.
     sample_rows = kwargs.get("sample_rows")
     assert sample_rows is not None and len(sample_rows) >= 1
 
@@ -668,7 +532,6 @@ def test_pass15_non_tty_does_not_prompt_or_block(
 
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    table_rules_path = tmp_path / "table-rules.json"
 
     result = runner.invoke(
         app,
@@ -680,74 +543,15 @@ def test_pass15_non_tty_does_not_prompt_or_block(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(table_rules_path),
+            "--url",
+            _URL,
         ],
     )
 
-    # Migration finished, no prompts, no Notion failures
     assert result.exit_code == 0, result.output
     assert mock_prompt.call_count == 0
     assert notion_mock.append_blocks.await_count == 1
-    # Console mentions the unresolved signature so the operator can act later.
     assert "name|role" in result.output.lower()
-
-
-@patch("confluence_to_notion.cli.convert_page")
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli.ConfluenceClient")
-@patch("confluence_to_notion.cli._load_settings")
-def test_migrate_tree_pages_notion_api_error_on_body_upload(
-    mock_settings: Any,
-    mock_conf_cls: Any,
-    mock_notion_cls: Any,
-    mock_convert: Any,
-    tmp_path: Path,
-) -> None:
-    """APIResponseError during append_blocks exits non-zero with a red error."""
-    mock_settings.return_value = _make_settings_mock()
-    mock_conf_cls.return_value = _build_confluence_mock(
-        PageTreeNode(id="root", title="Root Page")
-    )
-    notion_mock = _build_notion_mock()
-    api_error = APIResponseError(
-        code="validation_error",
-        status=400,
-        message="invalid block",
-        headers=httpx.Headers(),
-        raw_body_text="invalid block",
-    )
-    notion_mock.append_blocks = AsyncMock(side_effect=api_error)
-    mock_notion_cls.return_value = notion_mock
-
-    mock_convert.return_value = ConversionResult(
-        page_id="",
-        blocks=[{"object": "block", "type": "paragraph"}],
-        unresolved=[],
-    )
-
-    rules_path = tmp_path / "rules.json"
-    _write_rules(rules_path)
-
-    result = runner.invoke(
-        app,
-        [
-            "migrate-tree-pages",
-            "--root-id",
-            "root",
-            "--target",
-            "parent-xyz",
-            "--rules",
-            str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Notion" in result.output or "API" in result.output
 
 
 # --- Pass 1.5: Notion database creation for is_database=True signatures ---
@@ -795,8 +599,6 @@ def test_pass15_creates_notion_db_once_per_is_database_signature(
 
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    table_rules_path = tmp_path / "table-rules.json"
-    resolution_path = tmp_path / "resolution.json"
 
     result = runner.invoke(
         app,
@@ -808,10 +610,8 @@ def test_pass15_creates_notion_db_once_per_is_database_signature(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(resolution_path),
-            "--table-rules",
-            str(table_rules_path),
+            "--url",
+            _URL,
         ],
     )
     assert result.exit_code == 0, result.output
@@ -826,7 +626,8 @@ def test_pass15_creates_notion_db_once_per_is_database_signature(
     assert db_kwargs["column_types"] == {"name": "title", "role": "select"}
 
     # (b) Resolution store carries database_id entries for the affected tables.
-    res_store = ResolutionStore(resolution_path)
+    run_dir = _only_run_dir(tmp_path)
+    res_store = ResolutionStore(run_dir / "resolution.json")
     table_entries = [
         (k, v) for k, v in res_store.data.entries.items() if k.startswith("table:")
     ]
@@ -892,16 +693,13 @@ def test_pass15_layout_signature_keeps_table_block_and_no_db_create(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(tmp_path / "table-rules.json"),
+            "--url",
+            _URL,
         ],
     )
     assert result.exit_code == 0, result.output
 
     notion_mock.create_database.assert_not_awaited()
-    # Page got a real table block (not child_database).
     blocks = notion_mock.append_blocks.await_args_list[0].kwargs.get(
         "blocks", notion_mock.append_blocks.await_args_list[0].args[1]
     )
@@ -947,80 +745,13 @@ def test_pass15_non_tty_does_not_create_db(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(tmp_path / "table-rules.json"),
+            "--url",
+            _URL,
         ],
     )
     assert result.exit_code == 0, result.output
     notion_mock.create_database.assert_not_awaited()
     mock_prompt.assert_not_called()
-
-
-@patch("confluence_to_notion.cli._prompt_table_rule")
-@patch("confluence_to_notion.cli.NotionClientWrapper")
-@patch("confluence_to_notion.cli.ConfluenceClient")
-@patch("confluence_to_notion.cli._load_settings")
-def test_pass15_existing_is_database_rule_creates_db_without_prompt(
-    mock_settings: Any,
-    mock_conf_cls: Any,
-    mock_notion_cls: Any,
-    mock_prompt: Any,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pre-existing is_database=True rule (no prompt) still triggers create_database."""
-    monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
-
-    tree = PageTreeNode(id="root", title="Root Page")
-    body = _table_xhtml(["Name", "Role"], [["Alice", "Dev"]])
-    mock_settings.return_value = _make_settings_mock()
-    mock_conf_cls.return_value = _build_confluence_mock_with_bodies(tree, {"root": body})
-    notion_mock = _build_notion_mock()
-    notion_mock.create_database = AsyncMock(return_value="db-pre-existing")
-    mock_notion_cls.return_value = notion_mock
-
-    table_rules_path = tmp_path / "table-rules.json"
-    pre = TableRuleStore(table_rules_path)
-    pre.upsert(
-        ["Name", "Role"],
-        TableRule(
-            is_database=True,
-            title_column="name",
-            column_types={"name": "title", "role": "select"},
-        ),
-    )
-    pre.save()
-
-    rules_path = tmp_path / "rules.json"
-    _write_rules(rules_path)
-
-    result = runner.invoke(
-        app,
-        [
-            "migrate-tree-pages",
-            "--root-id",
-            "root",
-            "--target",
-            "parent-xyz",
-            "--rules",
-            str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "resolution.json"),
-            "--table-rules",
-            str(table_rules_path),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    mock_prompt.assert_not_called()
-    assert notion_mock.create_database.await_count == 1
-    blocks = notion_mock.append_blocks.await_args_list[0].kwargs.get(
-        "blocks", notion_mock.append_blocks.await_args_list[0].args[1]
-    )
-    child_db_blocks = [b for b in blocks if b.get("type") == "child_database"]
-    assert len(child_db_blocks) == 1
-    assert child_db_blocks[0]["child_database"] == {"database_id": "db-pre-existing"}
 
 
 # --- _prompt_table_rule direct regression: store must survive round-trip ---
@@ -1052,7 +783,6 @@ def test_prompt_table_rule_persists_roundtrip_with_title_cased_headers(
     assert rule.title_column == "name"
     assert rule.column_types == {"name": "title", "role": "select"}
 
-    # Round-trip through TableRuleStore: save then reload from disk.
     store_path = tmp_path / "table-rules.json"
     store = TableRuleStore(store_path)
     store.upsert(headers, rule)
@@ -1061,7 +791,6 @@ def test_prompt_table_rule_persists_roundtrip_with_title_cased_headers(
     reloaded = TableRuleStore(store_path)
     assert reloaded.lookup(headers) is not None
     assert reloaded.lookup(headers) == rule
-    # Signature key is normalized in the store.
     assert "name|role" in reloaded.data.rules
 
 
@@ -1093,7 +822,6 @@ def test_prompt_table_rule_accepts_case_variant_without_reprompt(
     monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
     monkeypatch.setattr("typer.confirm", lambda *a, **kw: True)
 
-    # Only one value supplied — a re-prompt would raise StopIteration and fail the test.
     prompt_mock = MagicMock(side_effect=["NAME"])
     monkeypatch.setattr("typer.prompt", prompt_mock)
 
@@ -1124,26 +852,15 @@ def test_prompt_table_rule_non_tty_falls_back_to_first_header(
         column_type_draft={"Name": "title", "Role": "select"},
     )
 
-    # Fallback to first header (normalized) — never persists a column not in the signature.
     assert rule.title_column == "name"
-    # No looping in non-TTY: prompt is invoked at most once.
     assert prompt_mock.call_count <= 1
 
     captured = capsys.readouterr().out
-    # Operator-visible warning so the silent-wipe trap can't reopen via typos.
     assert "totally_bogus" in captured
     assert "name" in captured
 
 
 # --- --url mode: run-dir layout wiring ---
-
-
-def _only_run_dir(tmp_path: Path) -> Path:
-    """Return the single run directory under ``tmp_path/output/runs/``."""
-    run_root = tmp_path / "output" / "runs"
-    dirs = [p for p in run_root.iterdir() if p.is_dir()]
-    assert len(dirs) == 1, f"expected exactly one run dir, got {dirs}"
-    return dirs[0]
 
 
 @patch("confluence_to_notion.cli.convert_page")
@@ -1159,7 +876,7 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
 ) -> None:
     """--url mode: start_run seeds source.json/status.json, converted/ holds Pass-2
     JSON per page, status.json records fetch/convert/migrate=DONE, report.md is
-    rendered on finalize_run, and --resolution-out/--table-rules are ignored.
+    rendered on finalize_run.
     """
     mock_settings.return_value = _make_settings_mock()
     mock_conf_cls.return_value = _build_confluence_mock(_fixture_tree())
@@ -1173,9 +890,6 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
 
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    # Sabotage paths: if the CLI honored them in --url mode, these would be written.
-    sabotage_res = tmp_path / "nope-resolution.json"
-    sabotage_tr = tmp_path / "nope-table-rules.json"
 
     url = "https://example.atlassian.net/wiki/spaces/TEST/pages/root/Root+Page"
 
@@ -1189,10 +903,6 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(sabotage_res),
-            "--table-rules",
-            str(sabotage_tr),
             "--url",
             url,
         ],
@@ -1200,7 +910,6 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
 
     assert result.exit_code == 0, result.output
 
-    # (a) run_dir exists with source.json + status.json + report.md
     run_dir = _only_run_dir(tmp_path)
     assert (run_dir / "source.json").exists()
     assert (run_dir / "status.json").exists()
@@ -1214,13 +923,9 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
     assert source.root_id == "root"
     assert source.notion_target == {"page_id": "parent-xyz"}
 
-    # (b) resolution.json lives under run_dir, not at --resolution-out.
     assert (run_dir / "resolution.json").exists()
-    assert not sabotage_res.exists()
-    # --table-rules sabotage path must not be touched either.
-    assert not sabotage_tr.exists()
+    assert not (tmp_path / "output" / "resolution.json").exists()
 
-    # (d) Pass-2 converted blocks are written under run_dir/converted/<page_id>.json.
     converted_dir = run_dir / "converted"
     assert converted_dir.is_dir()
     produced_ids = {p.stem for p in converted_dir.glob("*.json")}
@@ -1228,7 +933,6 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
     blocks = json.loads((converted_dir / "root.json").read_text(encoding="utf-8"))
     assert blocks == [{"object": "block", "type": "paragraph"}]
 
-    # (e) status.json: fetch/convert/migrate DONE with expected counts.
     status = read_status(run_dir)
     assert status.fetch.status == StepStatus.DONE
     assert status.fetch.count == 4
@@ -1237,7 +941,6 @@ def test_migrate_tree_pages_url_mode_writes_run_artifacts(
     assert status.migrate.status == StepStatus.DONE
     assert status.migrate.count == 4
 
-    # (f) report.md starts with '# Run Report' and mentions the source URL.
     report_text = (run_dir / "report.md").read_text(encoding="utf-8")
     assert report_text.startswith("# Run Report")
     assert url in report_text
@@ -1257,9 +960,7 @@ def test_migrate_tree_pages_url_mode_persists_table_rules_under_run_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """--url mode: table-rules store is saved under run_dir/rules/table-rules.json,
-    and the CLI-level --table-rules sabotage path is left untouched.
-    """
+    """--url mode: table-rules store is saved under run_dir/rules/table-rules.json."""
     monkeypatch.setattr("confluence_to_notion.cli._stdin_is_tty", lambda: True)
 
     tree = PageTreeNode(id="root", title="Root Page")
@@ -1284,7 +985,6 @@ def test_migrate_tree_pages_url_mode_persists_table_rules_under_run_dir(
 
     rules_path = tmp_path / "rules.json"
     _write_rules(rules_path)
-    sabotage_tr = tmp_path / "nope-table-rules.json"
 
     result = runner.invoke(
         app,
@@ -1296,10 +996,6 @@ def test_migrate_tree_pages_url_mode_persists_table_rules_under_run_dir(
             "parent-xyz",
             "--rules",
             str(rules_path),
-            "--resolution-out",
-            str(tmp_path / "nope-resolution.json"),
-            "--table-rules",
-            str(sabotage_tr),
             "--url",
             "https://example.atlassian.net/wiki/spaces/TEST/pages/root",
         ],
@@ -1312,8 +1008,8 @@ def test_migrate_tree_pages_url_mode_persists_table_rules_under_run_dir(
     body_loaded = TableRuleSet.model_validate_json(persisted.read_text(encoding="utf-8"))
     assert "name|role" in body_loaded.rules
 
-    # The CLI-level path must not be touched.
-    assert not sabotage_tr.exists()
+    # Legacy repo-root sink must never be touched.
+    assert not (tmp_path / "output" / "rules" / "table-rules.json").exists()
 
 
 @patch("confluence_to_notion.cli.convert_page")
@@ -1374,7 +1070,6 @@ def test_migrate_tree_pages_url_mode_marks_migrate_failed_on_api_error(
     run_dir = _only_run_dir(tmp_path)
     status = read_status(run_dir)
     assert status.migrate.status == StepStatus.FAILED
-    # finalize_run still wrote the report on the way out.
     report_text = (run_dir / "report.md").read_text(encoding="utf-8")
     assert report_text.startswith("# Run Report")
     assert url in report_text

@@ -1,4 +1,4 @@
-"""Unit tests for the CLI convert command (legacy + --url run-dir wiring)."""
+"""Unit tests for the CLI convert command (--url run-dir wiring only)."""
 
 import json
 from pathlib import Path
@@ -42,15 +42,12 @@ def _seed_samples(tmp_path: Path, names: list[str]) -> Path:
     return samples_dir
 
 
-class TestConvertLegacy:
-    """`cli convert --rules ... --input ... --output ...` keeps legacy behavior."""
+class TestConvertRequiresUrl:
+    """`cli convert` without --url must fail and never write to output/converted/."""
 
-    def test_convert_legacy_writes_to_output_and_skips_run_dir(
-        self, tmp_path: Path
-    ) -> None:
+    def test_convert_without_url_exits_nonzero(self, tmp_path: Path) -> None:
         rules_path = _seed_rules(tmp_path)
         samples_dir = _seed_samples(tmp_path, ["page-a", "page-b"])
-        out_dir = tmp_path / "custom-out"
 
         with patch(
             "confluence_to_notion.cli.convert_page",
@@ -64,14 +61,12 @@ class TestConvertLegacy:
                     str(rules_path),
                     "--input",
                     str(samples_dir),
-                    "--output",
-                    str(out_dir),
                 ],
             )
 
-        assert result.exit_code == 0, result.output
-        assert (out_dir / "page-a.json").exists()
-        assert (out_dir / "page-b.json").exists()
+        assert result.exit_code != 0
+        assert "--url" in result.output
+        assert not (tmp_path / "output" / "converted").exists()
         assert not (tmp_path / "output" / "runs").exists()
 
 
@@ -112,6 +107,9 @@ class TestConvertWithUrl:
         converted_dir = run_dir / "converted"
         assert (converted_dir / "page-a.json").exists()
         assert (converted_dir / "page-b.json").exists()
+
+        # Legacy repo-root sink must never be created in --url mode.
+        assert not (tmp_path / "output" / "converted").exists()
 
         source_data = json.loads((run_dir / "source.json").read_text())
         assert source_data["url"] == url
@@ -161,3 +159,4 @@ class TestConvertWithUrl:
         assert status["convert"]["status"] == "failed"
 
         assert (run_dir / "report.md").exists()
+        assert not (tmp_path / "output" / "converted").exists()
