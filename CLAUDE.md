@@ -47,18 +47,18 @@ Load rules from `.claude/rules/*.md`:
 
 ```bash
 # Data preparation (Python CLI)
-uv run cli fetch --space <KEY> --limit <N>   # Fetch Confluence pages to samples/
-uv run cli fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
-uv run cli notion-ping                        # Validate Notion token
-uv run cli validate-output <file> <schema>   # Validate agent output (discovery|proposer)
+uv run c2n fetch --space <KEY> --limit <N>   # Fetch Confluence pages to samples/
+uv run c2n fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
+uv run c2n notion-ping                        # Validate Notion token
+uv run c2n validate-output <file> <schema>   # Validate agent output (discovery|proposer)
 
 # Conversion & migration (Python CLI) — convert / migrate / migrate-tree / migrate-tree-pages all require --url.
 # When --url is set, artifacts land under output/runs/<slug>/{source.json,status.json,report.md,resolution.json,converted/,...}
-uv run cli finalize output/proposals.json                                                           # proposals.json → rules.json (no run dir)
-uv run cli convert --url <url> --rules output/rules.json --input samples/                           # XHTML → Notion blocks (→ output/runs/<slug>/converted/)
-uv run cli migrate --url <url> --rules output/rules.json --input samples/ --target <page-id>        # Convert + publish pages
-uv run cli migrate-tree --url <url> --tree output/page-tree.json --target <page-id>                 # Create empty Notion hierarchy (→ output/runs/<slug>/resolution.json)
-uv run cli migrate-tree-pages --url <url> --root-id <conf-id> --rules output/rules.json --target <page-id>  # Multi-pass tree migration (resolution.json + rules/table-rules.json + converted/)
+uv run c2n finalize output/proposals.json                                                           # proposals.json → rules.json (no run dir)
+uv run c2n convert --url <url> --rules output/rules.json --input samples/                           # XHTML → Notion blocks (→ output/runs/<slug>/converted/)
+uv run c2n migrate --url <url> --rules output/rules.json --input samples/ --target <page-id>        # Convert + publish pages
+uv run c2n migrate-tree --url <url> --tree output/page-tree.json --target <page-id>                 # Create empty Notion hierarchy (→ output/runs/<slug>/resolution.json)
+uv run c2n migrate-tree-pages --url <url> --root-id <conf-id> --rules output/rules.json --target <page-id>  # Multi-pass tree migration (resolution.json + rules/table-rules.json + converted/)
 
 # Agent pipeline (bash script orchestration) — steps 1-2 agents, 3-4 deterministic
 bash scripts/discover.sh samples/ --url <url>             # Run full pipeline (4 steps)

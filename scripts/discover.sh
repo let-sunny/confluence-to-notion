@@ -104,7 +104,7 @@ fi
 # When critic/arbitrator agents are added, this step will be replaced by steps 3+4.
 if [[ "$FROM_STEP" -le 3 ]]; then
     echo "==> Step 3: finalize (proposals → rules.json)"
-    if ! uv run cli finalize "${OUTPUT_DIR}/proposals.json" --out "${OUTPUT_DIR}/rules.json"; then
+    if ! uv run c2n finalize "${OUTPUT_DIR}/proposals.json" --out "${OUTPUT_DIR}/rules.json"; then
         echo "[ERROR] Step 3 (finalize) failed."
         echo "        Input: ${OUTPUT_DIR}/proposals.json"
         exit 1
@@ -116,7 +116,7 @@ fi
 # Step 4: Convert XHTML → Notion blocks (artifacts land under output/runs/<slug>/converted/)
 if [[ "$FROM_STEP" -le 4 ]]; then
     echo "==> Step 4: convert (XHTML → Notion blocks)"
-    if ! uv run cli convert \
+    if ! uv run c2n convert \
         --rules "${OUTPUT_DIR}/rules.json" \
         --input "${SAMPLES_DIR}" \
         --url "${URL}"; then

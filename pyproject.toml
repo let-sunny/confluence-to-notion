@@ -43,7 +43,7 @@ Repository = "https://github.com/let-sunny/confluence-to-notion"
 Issues = "https://github.com/let-sunny/confluence-to-notion/issues"
 
 [project.scripts]
-cli = "confluence_to_notion.cli:app"
+c2n = "confluence_to_notion.cli:app"
 
 [tool.ruff]
 line-length = 100
