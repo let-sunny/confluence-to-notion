@@ -146,7 +146,8 @@ Run `uv run c2n <command> --help` for the full option list.
 ## MCP 설치
 
 `c2n` 는 stdio transport 기반 MCP 서버(`c2n-mcp`) 를 번들한다. Claude Code 에서
-`.mcp.json` 을 레포 루트에 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다.
+레포 루트에 `.mcp.json` 을 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다
+(워킹 디렉터리는 이 레포 루트여야 `uv run`·`scripts/discover.sh` 경로가 맞는다).
 
 ```json
 {
@@ -159,14 +160,35 @@ Run `uv run c2n <command> --help` for the full option list.
 }
 ```
 
-현재 read-only 범위:
+### Tools (요약)
 
-- Tools: `c2n_list_runs`, `c2n_status`, `c2n_resolve_url`
-- Resources: `c2n://runs`, `c2n://runs/<slug>/status|report|converted/<page>`,
-  `c2n://rules`
+| Tool | 역할 |
+|------|------|
+| `c2n_list_runs` | `output/runs/` 아래 런 요약 |
+| `c2n_status` | 특정 slug의 `status.json` (또는 slug 생략 시 목록) |
+| `c2n_resolve_url` | Confluence URL → `source_type` / `identifier` |
+| `c2n_migrate` | CLI와 동일한 URL 기반 `migrate` (`to`, `name`, `rediscover`, `dry_run`) — 성공 시 `slug`·`run_dir` 반환 |
+| `c2n_fetch` | `c2n fetch` 래퍼 (`space` 또는 `pages`, 선택 `url`) |
+| `c2n_discover` | `bash scripts/discover.sh <samples> --url <url>` |
+| `c2n_convert` | `c2n convert --rules … --input … --url …` |
+| `c2n_push` | 레거시 배치 `migrate` (`--url`, `--rules`, `--input`, `--target`) |
 
-Write-side tool (`c2n_migrate`) 와 low-level tools (`c2n_fetch` / `c2n_discover` /
-`c2n_convert` / `c2n_push`) 는 후속 이슈에서 추가 예정이다.
+### Resources
+
+- `c2n://runs`, `c2n://runs/<slug>/status|report|converted/<page>`, `c2n://rules`
+
+### 예제 워크플로우 (Claude Code)
+
+1. `.env` 를 채우고 `uv sync` 로 의존성을 맞춘다.
+2. MCP 패널에서 `c2n_resolve_url` 로 붙여넣은 Confluence URL 분류를 확인한다.
+3. `c2n_migrate` 에 같은 URL을 넘겨 한 번에 fetch → discover(필요 시) → convert → Notion 까지 돌린다 (`dry_run: true` 로 먼저 아티팩트만 확인할 수 있다).
+4. `c2n_list_runs` / `c2n_status` 또는 `c2n://runs/<slug>/report` 리소스로 결과를 읽는다.
+
+저수준 단계만 쪼개서 돌리려면 `c2n_fetch` → `c2n_discover` → `c2n_convert` → `c2n_push` 순으로 호출하면 CLI와 동일한 파이프라인을 재구성할 수 있다.
+
+### 수동 검증 (PR 시 기재)
+
+Claude Code 에서 stdio MCP 연결 후, 위 예제 중 **한 페이지 URL**에 대해 `c2n_migrate`(또는 `dry_run` → 실제 push)가 끝까지 성공하는지, 그리고 `c2n_status` / `c2n://…/report` 로 해당 런이 보이는지 확인한다. 실패 시 MCP 에러 메시지와 `output/runs/<slug>/report.md` 를 함께 첨부한다.
 
 ## Development
 

@@ -1,4 +1,4 @@
-"""c2n MCP server — read-only tools + c2n:// resources over stdio transport.
+"""c2n MCP server — tools + c2n:// resources over stdio transport.
 
 Exposes the run directory layout under ``output/runs/<slug>/`` and the generated
 ``output/rules.json`` to MCP clients (Claude Code and friends). Handlers are kept
@@ -8,14 +8,17 @@ FastMCP session.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
+import typer
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
 from mcp.shared.exceptions import McpError
-from mcp.types import INVALID_PARAMS, ErrorData
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData
 from pydantic import AnyUrl, BaseModel
 
 from confluence_to_notion.runs import read_status
@@ -23,6 +26,8 @@ from confluence_to_notion.url import ConfluenceUrlError, parse_confluence_url
 
 DEFAULT_BASE = Path("output")
 _C2N_SCHEME = "c2n://"
+# Repo root: src/confluence_to_notion/mcp_server.py → parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _unsafe_path_segment(segment: str) -> bool:
@@ -122,6 +127,146 @@ async def _resolve_url_handler(url: str) -> dict[str, Any]:
     except ConfluenceUrlError as exc:
         raise McpError(ErrorData(code=INVALID_PARAMS, message=str(exc))) from exc
     return info.model_dump()
+
+
+# --- write-side helpers (subprocess + migrate URL flow) --------------------
+
+
+def _run_uv_c2n_sync(
+    args: list[str], *, cwd: Path | None
+) -> subprocess.CompletedProcess[str]:
+    proc: subprocess.CompletedProcess[str] = subprocess.run(
+        ["uv", "run", "c2n", *args],
+        cwd=cwd or Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc
+
+
+async def _run_uv_c2n(args: list[str], *, cwd: Path | None = None) -> dict[str, Any]:
+    """Run ``uv run c2n …``; raise :class:`McpError` on non-zero exit."""
+    proc = await asyncio.to_thread(_run_uv_c2n_sync, args, cwd=cwd)
+    if proc.returncode != 0:
+        msg = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        if not msg:
+            msg = f"exit code {proc.returncode}"
+        raise McpError(
+            ErrorData(
+                code=INTERNAL_ERROR,
+                message=f"uv run c2n {' '.join(args[:4])}… failed: {msg[:4000]}",
+            )
+        )
+    return {"returncode": proc.returncode, "stdout": (proc.stdout or "").strip()}
+
+
+async def _c2n_migrate_handler(
+    url: str,
+    to: str | None = None,
+    name: str | None = None,
+    rediscover: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Run the same URL-driven migrate flow as ``c2n migrate <url>`` (writes under ``output/``)."""
+
+    def _run() -> Path:
+        from confluence_to_notion.cli import _migrate_url_flow
+
+        return _migrate_url_flow(
+            url,
+            to=to,
+            name=name,
+            rediscover=rediscover,
+            dry_run=dry_run,
+        )
+
+    try:
+        run_dir = await asyncio.to_thread(_run)
+    except typer.Exit as exc:
+        code = getattr(exc, "exit_code", 1) or 1
+        raise McpError(
+            ErrorData(
+                code=INTERNAL_ERROR,
+                message=f"c2n migrate failed (exit {code})",
+            )
+        ) from exc
+    return {"slug": run_dir.name, "run_dir": str(run_dir.resolve())}
+
+
+async def _c2n_fetch_handler(
+    space: str | None = None,
+    pages: str | None = None,
+    limit: int = 25,
+    out_dir: str = "samples",
+    url: str | None = None,
+) -> dict[str, Any]:
+    if not space and not pages:
+        raise McpError(
+            ErrorData(
+                code=INVALID_PARAMS,
+                message="Provide ``space`` or ``pages`` (comma-separated page IDs).",
+            )
+        )
+    args: list[str] = ["fetch", "--limit", str(limit), "--out-dir", out_dir]
+    if space:
+        args.extend(["--space", space])
+    if pages:
+        args.extend(["--pages", pages])
+    if url is not None:
+        args.extend(["--url", url])
+    return await _run_uv_c2n(args, cwd=None)
+
+
+async def _c2n_discover_handler(samples: str, url: str) -> dict[str, Any]:
+    """Run ``scripts/discover.sh`` (same as the CLI reminder + URL migrate path)."""
+
+    def _run() -> subprocess.CompletedProcess[str]:
+        proc: subprocess.CompletedProcess[str] = subprocess.run(
+            ["bash", "scripts/discover.sh", samples, "--url", url],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return proc
+
+    proc = await asyncio.to_thread(_run)
+    if proc.returncode != 0:
+        msg = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+        raise McpError(
+            ErrorData(
+                code=INTERNAL_ERROR,
+                message=f"discover.sh failed: {msg[:4000]}",
+            )
+        )
+    return {"returncode": proc.returncode, "stdout": (proc.stdout or "").strip()}
+
+
+async def _c2n_convert_handler(rules: str, input_dir: str, url: str) -> dict[str, Any]:
+    args = ["convert", "--rules", rules, "--input", input_dir, "--url", url]
+    return await _run_uv_c2n(args, cwd=None)
+
+
+async def _c2n_push_handler(
+    url: str,
+    rules: str,
+    input_dir: str,
+    target: str,
+) -> dict[str, Any]:
+    """Legacy batch migrate (``c2n migrate --url … --rules … --input … --target …``)."""
+    args = [
+        "migrate",
+        "--url",
+        url,
+        "--rules",
+        rules,
+        "--input",
+        input_dir,
+        "--target",
+        target,
+    ]
+    return await _run_uv_c2n(args, cwd=None)
 
 
 # --- resource handlers -----------------------------------------------------
@@ -284,9 +429,50 @@ def build_server(base: Path = DEFAULT_BASE) -> FastMCP:
         """Classify a Confluence URL into (source_type, identifier)."""
         return await _resolve_url_handler(url)
 
+    async def c2n_migrate(
+        url: str,
+        to: str | None = None,
+        name: str | None = None,
+        rediscover: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """URL-driven migrate (same as ``c2n migrate <url>``); returns run slug + path."""
+        return await _c2n_migrate_handler(
+            url, to=to, name=name, rediscover=rediscover, dry_run=dry_run
+        )
+
+    async def c2n_fetch(
+        space: str | None = None,
+        pages: str | None = None,
+        limit: int = 25,
+        out_dir: str = "samples",
+        url: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch Confluence XHTML (``c2n fetch``)."""
+        return await _c2n_fetch_handler(
+            space=space, pages=pages, limit=limit, out_dir=out_dir, url=url
+        )
+
+    async def c2n_discover(samples: str, url: str) -> dict[str, Any]:
+        """Run ``bash scripts/discover.sh <samples> --url <url>``."""
+        return await _c2n_discover_handler(samples, url)
+
+    async def c2n_convert(rules: str, input_dir: str, url: str) -> dict[str, Any]:
+        """Offline XHTML → blocks (``c2n convert --rules … --input … --url …``)."""
+        return await _c2n_convert_handler(rules, input_dir, url)
+
+    async def c2n_push(url: str, rules: str, input_dir: str, target: str) -> dict[str, Any]:
+        """Batch publish pre-converted samples (legacy ``c2n migrate --url …`` form)."""
+        return await _c2n_push_handler(url, rules, input_dir, target)
+
     server.add_tool(c2n_list_runs, name="c2n_list_runs")
     server.add_tool(c2n_status, name="c2n_status")
     server.add_tool(c2n_resolve_url, name="c2n_resolve_url")
+    server.add_tool(c2n_migrate, name="c2n_migrate")
+    server.add_tool(c2n_fetch, name="c2n_fetch")
+    server.add_tool(c2n_discover, name="c2n_discover")
+    server.add_tool(c2n_convert, name="c2n_convert")
+    server.add_tool(c2n_push, name="c2n_push")
 
     _register_resources(server, base)
     return server

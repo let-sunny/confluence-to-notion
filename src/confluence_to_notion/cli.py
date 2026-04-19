@@ -1073,8 +1073,11 @@ def _migrate_url_flow(
     name: str | None,
     rediscover: bool,
     dry_run: bool,
-) -> None:
-    """URL-driven migrate: parse, optional discover, dispatch page/space, finalize."""
+) -> Path:
+    """URL-driven migrate: parse, optional discover, dispatch page/space, finalize.
+
+    Returns the run directory (``output/runs/<slug>/``) on success.
+    """
     from confluence_to_notion.agents.schemas import FinalRuleset
 
     try:
@@ -1179,6 +1182,7 @@ def _migrate_url_flow(
         finalize_run(
             run_dir, rules_summary=format_rules_summary(used_rules_total)
         )
+    return run_dir
 
 
 def _run_page_dispatch(

@@ -1,15 +1,18 @@
-"""Unit tests for the c2n MCP server (read-only tools + c2n:// resources)."""
+"""Unit tests for the c2n MCP server (tools + c2n:// resources)."""
 
 import json
 from pathlib import Path
 
 import pytest
+import typer
 from mcp.shared.exceptions import McpError
 from pydantic import ValidationError
 
 from confluence_to_notion.mcp_server import (
     ResolveUrlArgs,
     StatusArgs,
+    _c2n_fetch_handler,
+    _c2n_migrate_handler,
     _list_resources_handler,
     _list_runs_handler,
     _read_resource_handler,
@@ -136,11 +139,91 @@ def test_resolve_url_args_requires_url() -> None:
 # ---------- build_server ---------------------------------------------------
 
 
-async def test_build_server_registers_read_only_tools() -> None:
+async def test_build_server_registers_expected_tools() -> None:
     server = build_server()
     tools = await server.list_tools()
     names = {t.name for t in tools}
-    assert {"c2n_list_runs", "c2n_status", "c2n_resolve_url"}.issubset(names)
+    assert {
+        "c2n_list_runs",
+        "c2n_status",
+        "c2n_resolve_url",
+        "c2n_migrate",
+        "c2n_fetch",
+        "c2n_discover",
+        "c2n_convert",
+        "c2n_push",
+    } == names
+
+
+async def test_c2n_migrate_handler_returns_slug(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def fake(
+        url: str,
+        *,
+        to: str | None,
+        name: str | None,
+        rediscover: bool,
+        dry_run: bool,
+    ) -> Path:
+        assert "wiki/spaces" in url
+        rd = tmp_path / "output" / "runs" / "slug-from-test"
+        rd.mkdir(parents=True, exist_ok=True)
+        return rd
+
+    monkeypatch.setattr("confluence_to_notion.cli._migrate_url_flow", fake)
+    out = await _c2n_migrate_handler(
+        "https://example.atlassian.net/wiki/spaces/E/pages/1/Title",
+        dry_run=True,
+    )
+    expected_dir = (tmp_path / "output" / "runs" / "slug-from-test").resolve()
+    assert out == {"slug": "slug-from-test", "run_dir": str(expected_dir)}
+
+
+async def test_c2n_migrate_handler_maps_typer_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def boom(
+        url: str,
+        *,
+        to: str | None,
+        name: str | None,
+        rediscover: bool,
+        dry_run: bool,
+    ) -> Path:
+        raise typer.Exit(code=3)
+
+    monkeypatch.setattr("confluence_to_notion.cli._migrate_url_flow", boom)
+    with pytest.raises(McpError, match="exit 3"):
+        await _c2n_migrate_handler("https://example.atlassian.net/wiki/spaces/E/pages/1/T")
+
+
+async def test_c2n_fetch_handler_requires_space_or_pages() -> None:
+    with pytest.raises(McpError, match="space"):
+        await _c2n_fetch_handler()
+
+
+async def test_run_uv_c2n_sync_monkeypatched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def fake(args: list[str], *, cwd: Path | None) -> CompletedProcess[str]:
+        calls.append(list(args))
+        return CompletedProcess(["uv", "run", "c2n", *args], 0, "done", "")
+
+    monkeypatch.setattr("confluence_to_notion.mcp_server._run_uv_c2n_sync", fake)
+    from confluence_to_notion.mcp_server import _run_uv_c2n
+
+    out = await _run_uv_c2n(["notion-ping"], cwd=None)
+    assert out["stdout"] == "done"
+    assert calls[0] == ["notion-ping"]
 
 
 # ---------- c2n:// resources (list) ----------------------------------------
