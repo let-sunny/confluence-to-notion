@@ -146,7 +146,11 @@ Run `uv run c2n <command> --help` for the full option list.
 ## MCP 설치
 
 `c2n` 는 stdio transport 기반 MCP 서버(`c2n-mcp`) 를 번들한다. Claude Code 에서
-`.mcp.json` 을 레포 루트에 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다.
+레포 루트에 `.mcp.json` 을 두고 아래 스니펫을 추가하면 로컬 세션에서 바로 연결된다.
+
+`c2n-mcp` 는 `uv run c2n …` / `discover.sh` 자식 프로세스를 **항상 레포 루트를 `cwd` 로**
+실행한다(JSON-RPC용 stdout 에 Rich/쉘 로그가 섞이지 않도록, 자식 stdout/stderr 는 캡처).
+클라이언트 cwd 와 무관하게 `output/`, `samples/` 등은 레포 기준 경로로 해석된다.
 
 ```json
 {
@@ -159,14 +163,35 @@ Run `uv run c2n <command> --help` for the full option list.
 }
 ```
 
-현재 read-only 범위:
+### Tools (요약)
 
-- Tools: `c2n_list_runs`, `c2n_status`, `c2n_resolve_url`
-- Resources: `c2n://runs`, `c2n://runs/<slug>/status|report|converted/<page>`,
-  `c2n://rules`
+| Tool | 역할 |
+|------|------|
+| `c2n_list_runs` | `output/runs/` 아래 런 요약 |
+| `c2n_status` | 특정 slug의 `status.json` (또는 slug 생략 시 목록) |
+| `c2n_resolve_url` | Confluence URL → `source_type` / `identifier` |
+| `c2n_migrate` | `uv run c2n migrate <url>` 서브프로세스(MCP stdio 보호). 선택 인자: `to`(Notion 부모 URL·page id), `name`(런 슬러그), `rediscover`, `dry_run`. 성공 시 `{returncode, stdout}` |
+| `c2n_fetch` | `uv run c2n fetch` (`space` 또는 `pages`, 선택 `url`) → `{returncode, stdout}` |
+| `c2n_discover` | `bash scripts/discover.sh <samples> --url <url>` → `{returncode, stdout}` |
+| `c2n_convert` | `uv run c2n convert --rules … --input … --url …` → `{returncode, stdout}` |
+| `c2n_push` | `uv run c2n migrate --url … --rules … --input … --target …` (레거시 배치) → `{returncode, stdout}` |
 
-Write-side tool (`c2n_migrate`) 와 low-level tools (`c2n_fetch` / `c2n_discover` /
-`c2n_convert` / `c2n_push`) 는 후속 이슈에서 추가 예정이다.
+### Resources
+
+- `c2n://runs`, `c2n://runs/<slug>/status|report|converted/<page>`, `c2n://rules`
+
+### 예제 워크플로우 (Claude Code)
+
+1. `.env` 를 채우고 `uv sync` 로 의존성을 맞춘다.
+2. MCP 패널에서 `c2n_resolve_url` 로 붙여넣은 Confluence URL 분류를 확인한다.
+3. `c2n_migrate` 에 같은 URL을 넘겨 한 번에 fetch → discover(필요 시) → convert → Notion 까지 돌린다 (`dry_run: true` 로 먼저 아티팩트만 확인할 수 있다).
+4. `c2n_list_runs` 로 방금 생긴 런의 **slug** 를 확인한 뒤, `c2n_status(slug=…)` 또는 `c2n://runs/<slug>/report` 리소스로 상태·리포트를 읽는다. (도구 응답은 `{returncode, stdout}` 이므로 slug는 목록/리소스에서 회수한다.)
+
+저수준 단계만 쪼개서 돌리려면 `c2n_fetch` → `c2n_discover` → `c2n_convert` → `c2n_push` 순으로 호출하면 CLI와 동일한 파이프라인을 재구성할 수 있다.
+
+### 수동 검증 (PR 시 기재)
+
+Claude Code 에서 stdio MCP 연결 후, 위 예제 중 **한 페이지 URL**에 대해 `c2n_migrate`(또는 `dry_run` → 실제 push)가 끝까지 성공하는지, 그리고 `c2n_status` / `c2n://…/report` 로 해당 런이 보이는지 확인한다. 실패 시 MCP 에러 메시지와 `output/runs/<slug>/report.md` 를 함께 첨부한다.
 
 ## Development
 
