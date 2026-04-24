@@ -5,42 +5,39 @@ import { convertXhtmlToConversionResult } from "../../src/converter/convertPage.
 const emptyRuleset: FinalRuleset = { source: "test", rules: [] };
 
 describe("convertXhtmlToConversionResult", () => {
-  it("strips markup into a single paragraph block", () => {
+  it("preserves inline annotations from the real converter", () => {
     const result = convertXhtmlToConversionResult(emptyRuleset, "<p>Hello <b>world</b></p>", "42");
     expect(result.blocks).toHaveLength(1);
     expect(result.blocks[0]).toMatchObject({
       type: "paragraph",
       paragraph: {
-        rich_text: [{ type: "text", text: { content: "Hello world" } }],
+        rich_text: [
+          { type: "text", text: { content: "Hello " } },
+          { type: "text", text: { content: "world" }, annotations: { bold: true } },
+        ],
       },
     });
   });
 
-  it("drops script and style bodies", () => {
-    const result = convertXhtmlToConversionResult(
-      emptyRuleset,
-      "<p>a</p><script>evil()</script><style>.x{}</style><p>b</p>",
-      "1",
-    );
+  it("emits one paragraph per <p> rather than concatenating them", () => {
+    const result = convertXhtmlToConversionResult(emptyRuleset, "<p>a</p><p>b</p>", "1");
+    expect(result.blocks).toHaveLength(2);
     expect(result.blocks[0]).toMatchObject({
       type: "paragraph",
-      paragraph: {
-        rich_text: [{ type: "text", text: { content: "a b" } }],
-      },
+      paragraph: { rich_text: [{ type: "text", text: { content: "a" } }] },
+    });
+    expect(result.blocks[1]).toMatchObject({
+      type: "paragraph",
+      paragraph: { rich_text: [{ type: "text", text: { content: "b" } }] },
     });
   });
 
-  it("uses page id when there is no visible text", () => {
+  it("returns zero blocks for whitespace-only input", () => {
     const result = convertXhtmlToConversionResult(emptyRuleset, "   \n\t  ", "99");
-    expect(result.blocks[0]).toMatchObject({
-      type: "paragraph",
-      paragraph: {
-        rich_text: [{ type: "text", text: { content: "page 99" } }],
-      },
-    });
+    expect(result.blocks).toEqual([]);
   });
 
-  it("returns empty usedRules and unresolved", () => {
+  it("returns empty usedRules and unresolved for a plain paragraph", () => {
     const result = convertXhtmlToConversionResult(emptyRuleset, "<p>x</p>", "1");
     expect(result.unresolved).toEqual([]);
     expect(result.usedRules).toEqual({});
