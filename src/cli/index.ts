@@ -2,6 +2,7 @@ import { Command } from "commander";
 import pkg from "../../package.json" with { type: "json" };
 import { registerConvertCommands } from "./convert.js";
 import { registerDiscoverShim } from "./discover.js";
+import { registerEvalHarness } from "./evalHarness.js";
 import { registerFetchCommands } from "./fetch.js";
 import { registerFinalizeCommands } from "./finalize.js";
 import { registerMigrateCommands } from "./migrate.js";
@@ -26,6 +27,7 @@ export function createProgram(): Command {
   registerFetchCommands(program);
   registerNotionCommands(program);
   registerDiscoverShim(program);
+  registerEvalHarness(program);
   registerValidateCommands(program);
   registerFinalizeCommands(program);
   registerConvertCommands(program);

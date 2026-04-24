@@ -1,10 +1,12 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createProgram } from "./cli/index.js";
 
 export { createProgram } from "./cli/index.js";
 
+const entry = process.argv[1];
 const isDirectInvocation =
-  import.meta.url === `file://${process.argv[1]}` ||
-  process.argv[1]?.endsWith("/dist/cli.js") === true;
+  entry !== undefined && resolve(fileURLToPath(import.meta.url)) === resolve(entry);
 
 if (isDirectInvocation) {
   createProgram().parse(process.argv);

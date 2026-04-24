@@ -22,7 +22,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 - HTTP: undici / global `fetch` (lands in PR 3)
 - Notion SDK: `@notionhq/client` (lands in PR 3)
 - MCP SDK: `@modelcontextprotocol/sdk` (lands in PR 3)
-- Anthropic SDK: `@anthropic-ai/sdk` (lands in PR 3 for eval `--llm-judge`)
+- Anthropic: `c2n eval --llm-judge` calls the Messages HTTP API directly (no `@anthropic-ai/sdk` in the CLI bundle; keeps `dist/cli.js` small).
 - Bundler: tsup
 - Test runner: vitest (+ `@vitest/coverage-v8`)
 - Lint + format: biome
@@ -70,7 +70,7 @@ Load rules from `.claude/rules/*.md`:
 pnpm exec c2n --version
 pnpm exec c2n --help
 # Planned subcommands (frozen in ADR-00M): fetch, fetch-tree, notion-ping, validate-output,
-# finalize, convert, migrate, migrate-tree, migrate-tree-pages
+# finalize, convert, eval, migrate, migrate-tree, migrate-tree-pages
 
 # Agent pipeline (bash script orchestration) — retargeted to `pnpm exec c2n` in PR 4
 bash scripts/discover.sh samples/ --url <url>             # Run full pipeline (4 steps)

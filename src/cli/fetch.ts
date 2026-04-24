@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Command } from "commander";
-import { createConfluenceClient } from "../confluence/client.js";
+import { type FetchLike, createConfluenceClient } from "../confluence/client.js";
 import { type RunContext, finalizeRun, startRun, updateStep } from "../runs/index.js";
 import { readConfluenceAuth, readConfluenceBaseUrl } from "./confluenceEnv.js";
 
@@ -15,6 +15,20 @@ export interface FetchCliOptions {
 
 function outputRootDir(): string {
   return join(process.cwd(), "output");
+}
+
+/** When `C2N_USE_GLOBAL_FETCH=1`, use `globalThis.fetch` so MSW can intercept in tests. */
+function createCliConfluenceClient(): ReturnType<typeof createConfluenceClient> {
+  const { email, token } = readConfluenceAuth();
+  const baseUrl = readConfluenceBaseUrl();
+  const useGlobal = process.env.C2N_USE_GLOBAL_FETCH === "1";
+  const g = globalThis as { fetch?: FetchLike };
+  return createConfluenceClient({
+    email,
+    token,
+    baseUrl,
+    ...(useGlobal && typeof g.fetch === "function" ? { fetchImpl: g.fetch } : {}),
+  });
 }
 
 async function writePageXhtml(targetDir: string, pageId: string, xhtml: string): Promise<void> {
@@ -75,9 +89,7 @@ export async function runFetchCommand(opts: FetchCliOptions): Promise<void> {
     process.exit(1);
   }
 
-  const { email, token } = readConfluenceAuth();
-  const baseUrl = readConfluenceBaseUrl();
-  const client = createConfluenceClient({ email, token, baseUrl });
+  const client = createCliConfluenceClient();
 
   let runContext: RunContext | null = null;
   if (opts.url !== undefined && opts.url.length > 0) {
@@ -115,9 +127,7 @@ export interface FetchTreeCliOptions {
 }
 
 export async function runFetchTreeCommand(opts: FetchTreeCliOptions): Promise<void> {
-  const { email, token } = readConfluenceAuth();
-  const baseUrl = readConfluenceBaseUrl();
-  const client = createConfluenceClient({ email, token, baseUrl });
+  const client = createCliConfluenceClient();
   const tree = await client.getPageTree(opts.rootId, { maxDepth: 25 });
   const json = `${JSON.stringify(tree, null, 2)}\n`;
 

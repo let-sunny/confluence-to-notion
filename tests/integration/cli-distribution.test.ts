@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const maxBytes = 2 * 1024 * 1024;
 const cliJs = join(repoRoot, "dist/cli.js");
+const tsupCli = join(repoRoot, "node_modules", "tsup", "dist", "cli-default.js");
 
 function runBuiltCli(args: string[]): string {
   return execFileSync(process.execPath, [cliJs, ...args], {
@@ -18,7 +19,8 @@ function runBuiltCli(args: string[]): string {
 
 describe("CLI distribution (built dist/cli.js)", () => {
   beforeAll(() => {
-    execFileSync("pnpm", ["build"], { cwd: repoRoot, stdio: "inherit" });
+    // Run tsup via Node so Windows CI does not require `pnpm` on PATH for spawnSync.
+    execFileSync(process.execPath, [tsupCli], { cwd: repoRoot, stdio: "inherit" });
   });
 
   it("prints a semver version", () => {

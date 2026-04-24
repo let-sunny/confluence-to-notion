@@ -42,4 +42,4 @@ pnpm exec c2n validate-output output/proposals.json proposer
 
 # Step 3: Semantic coverage + baseline diff (+ optional LLM-as-judge)
 echo "--- Semantic coverage + baseline (TS eval harness) ---"
-pnpm exec tsx src/eval/index.ts output/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
+pnpm exec c2n eval output/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
