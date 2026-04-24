@@ -1,0 +1,11 @@
+{
+  "topLevel": [
+    "converted/",
+    "logs/",
+    "report.md",
+    "rules/",
+    "samples/",
+    "source.json",
+    "status.json"
+  ]
+}
