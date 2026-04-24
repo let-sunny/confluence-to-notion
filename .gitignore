@@ -1,12 +1,9 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
+# Node / TypeScript
+node_modules/
 dist/
-build/
-*.egg
-.venv/
+coverage/
+.turbo/
+*.tsbuildinfo
 
 # Environment
 .env
@@ -16,15 +13,6 @@ build/
 .idea/
 *.swp
 *.swo
-
-# mypy
-.mypy_cache/
-
-# pytest
-.pytest_cache/
-
-# ruff
-.ruff_cache/
 
 # Samples (fetched XHTML content)
 samples/*.xml

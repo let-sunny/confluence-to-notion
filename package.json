@@ -1,0 +1,46 @@
+{
+  "name": "confluence-to-notion",
+  "version": "0.1.0",
+  "description": "Auto-discover Confluence → Notion transformation rules using a multi-agent pipeline",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "c2n": "./dist/cli.js",
+    "c2n-mcp": "./dist/mcp.js"
+  },
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check",
+    "format": "biome format --write",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^20.17.9",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/let-sunny/confluence-to-notion.git"
+  },
+  "bugs": {
+    "url": "https://github.com/let-sunny/confluence-to-notion/issues"
+  },
+  "homepage": "https://github.com/let-sunny/confluence-to-notion#readme",
+  "keywords": ["confluence", "notion", "migration", "wiki", "converter"]
+}

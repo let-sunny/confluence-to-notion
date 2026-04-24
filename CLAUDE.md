@@ -3,76 +3,90 @@
 Auto-discovers Confluence → Notion transformation rules using a multi-agent pipeline.
 Derived rules are applied by a deterministic converter to migrate wiki pages while preserving structure.
 
+> **Port in progress (#129).** The repo is being rewritten from Python to
+> TypeScript across 5 PRs. PR 1/5 deletes the Python runtime and lands a
+> minimal TS scaffold; subcommands, the converter, and MCP server are filled
+> in across PRs 2–5. See
+> [`.claude/docs/ADR-00N-port-to-typescript.md`](.claude/docs/ADR-00N-port-to-typescript.md).
+
 ## Tech Stack
 
-- Python 3.11+
-- Package manager: uv
-- Agents: Claude Code subagents (`.claude/agents/*.md`), each runs as independent `claude -p` session
+- Node 20 LTS (see `.nvmrc`)
+- Package manager: pnpm
+- Language: TypeScript 5 (strict + `noUncheckedIndexedAccess`), ESM (`"type": "module"`)
+- Agents: Claude Code subagents (`.claude/agents/*.md`), each runs as an independent `claude -p` session
 - Orchestration: bash scripts (`scripts/discover.sh`, `scripts/develop.sh`) — NOT Claude commands
-- Confluence client: httpx (direct REST, no atlassian-python-api)
-- Notion client: notion-client (official SDK)
-- CLI: typer (data prep utilities)
-- Config: pydantic-settings + python-dotenv
-- Logging: rich
-- Testing: pytest, pytest-asyncio
-- Lint/format: ruff
-- Type check: mypy (strict on src/)
+- CLI: commander
+- Schema validation: zod (lands in PR 2)
+- XHTML parser: parse5 in XML mode (lands in PR 2)
+- HTTP: undici / global `fetch` (lands in PR 3)
+- Notion SDK: `@notionhq/client` (lands in PR 3)
+- MCP SDK: `@modelcontextprotocol/sdk` (lands in PR 3)
+- Anthropic SDK: `@anthropic-ai/sdk` (lands in PR 3 for eval `--llm-judge`)
+- Bundler: tsup
+- Test runner: vitest (+ `@vitest/coverage-v8`)
+- Lint + format: biome
+- Release: changesets
+
+## Language
+
+- **CRITICAL**: This repo is a global-audience portfolio. **Every artifact checked into the repo or pushed to GitHub must be in English.** This covers: commit messages, PR titles/bodies, issue titles/bodies/comments, README, `docs/`, `.claude/agents/*.md`, `.claude/rules/*.md`, `CLAUDE.md` itself, code comments, docstrings, log/error messages, and template files.
+- Interactive conversation between the user and Claude may be in Korean; only the repo-bound output is English.
+- When editing existing files that contain Korean, rewrite the touched passages in English. Bulk translation of untouched files should only happen when explicitly requested.
 
 ## Architecture Rules
 
-- **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<pipeline>/<name>.md` — NOT Python modules
+- **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<pipeline>/<name>.md` — NOT TypeScript modules
 - **CRITICAL**: Orchestration is a bash script (`scripts/discover.sh`), NOT a Claude command. Flow control must be deterministic and visible in code.
 - **CRITICAL**: Each `claude -p` call runs in a clean context. Agents communicate via files only.
-- **CRITICAL**: Never commit secrets. Use `.env` + pydantic-settings
+- **CRITICAL**: Never commit secrets. Use `.env` loaded via a typed config module.
 - `src/` contains only I/O adapters (Confluence, Notion) and the deterministic converter
-- Pydantic models in `schemas.py` define the file-based contracts between agents
+- zod schemas define the file-based contracts between agents (land in PR 2)
 
 ## Development Process
 
-- **CRITICAL**: TDD — write a failing test first, then implement (for Python code in `src/`)
-- **CRITICAL**: **discover-pipeline** 프롬프트(`pattern-discovery`, `rule-proposer`) 변경 PR은 `scripts/run-eval.sh` 결과(schema validation + semantic coverage + LLM-as-judge + baseline diff)를 **머지 게이트**로 사용한다. #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecate) 재설계로 eval 이 머지 게이트 신뢰성을 회복했음 — ADR-006 참조. PR 본문에 `eval_results/<timestamp>.json` 요약을 첨부한다(PR 템플릿 참조).
+- **CRITICAL**: TDD — write a failing test first, then implement (for TypeScript code in `src/`)
+- **CRITICAL**: PRs that change **discover-pipeline** prompts (`pattern-discovery`, `rule-proposer`) must use the output of `scripts/run-eval.sh` (schema validation + semantic coverage + LLM-as-judge + baseline diff) as a **merge gate**. The redesign in #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecation) restored the gate's reliability — see ADR-006. Attach the `eval_results/<timestamp>.json` summary in the PR body (see PR template).
 - Conventional commits: `feat|fix|docs|refactor|test|chore`
 - Squash merge only
-- PR 생성 시 관련 이슈를 `Closes #N` 키워드로 본문에 연결 (머지 시 자동 클로즈)
+- When opening a PR, link the related issue with a `Closes #N` keyword in the body (auto-closes on merge)
 
 ## Additional Rules
 
 Load rules from `.claude/rules/*.md`:
-- `python-style.md` — coding style, type hints, async patterns
+
 - `testing.md` — test structure, coverage, mocking
 - `agents.md` — subagent definition and orchestration rules
 - `prompts.md` — prompt management within agent definitions
 
+> `typescript-style.md` is authored in a later PR once the TS codebase has
+> enough surface area to pin conventions against. Until then, biome +
+> `tsconfig.json` strict mode are the enforced style.
+
 ## Commands
 
 ```bash
-# Data preparation (Python CLI)
-uv run c2n fetch --space <KEY> --limit <N>   # Fetch Confluence pages to samples/
-uv run c2n fetch --pages <ID1>,<ID2>,...     # Fetch specific pages by ID
-uv run c2n notion-ping                        # Validate Notion token
-uv run c2n validate-output <file> <schema>   # Validate agent output (discovery|proposer)
+# Data preparation, conversion, migration (TypeScript CLI) — subcommands land in PR 4 of #129
+pnpm exec c2n --version
+pnpm exec c2n --help
+# Planned subcommands (frozen in ADR-00M): fetch, fetch-tree, notion-ping, validate-output,
+# finalize, convert, migrate, migrate-tree, migrate-tree-pages
 
-# Conversion & migration (Python CLI) — convert / migrate / migrate-tree / migrate-tree-pages all require --url.
-# When --url is set, artifacts land under output/runs/<slug>/{source.json,status.json,report.md,resolution.json,converted/,...}
-uv run c2n finalize output/proposals.json                                                           # proposals.json → rules.json (no run dir)
-uv run c2n convert --url <url> --rules output/rules.json --input samples/                           # XHTML → Notion blocks (→ output/runs/<slug>/converted/)
-uv run c2n migrate --url <url> --rules output/rules.json --input samples/ --target <page-id>        # Convert + publish pages
-uv run c2n migrate-tree --url <url> --tree output/page-tree.json --target <page-id>                 # Create empty Notion hierarchy (→ output/runs/<slug>/resolution.json)
-uv run c2n migrate-tree-pages --url <url> --root-id <conf-id> --rules output/rules.json --target <page-id>  # Multi-pass tree migration (resolution.json + rules/table-rules.json + converted/)
-
-# Agent pipeline (bash script orchestration) — steps 1-2 agents, 3-4 deterministic
+# Agent pipeline (bash script orchestration) — retargeted to `pnpm exec c2n` in PR 4
 bash scripts/discover.sh samples/ --url <url>             # Run full pipeline (4 steps)
-bash scripts/discover.sh samples/ --url <url> --from 3    # Resume from step 3 (finalize + convert)
+bash scripts/discover.sh samples/ --url <url> --from 3    # Resume from step 3
 
 # Automated development pipeline — 7 steps: Plan, Implement, Test, Review, Fix, Verify, PR
 bash scripts/develop.sh <issue-number>              # Run full pipeline
 bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
-# Eval pipeline — discover-pipeline 프롬프트 변경 PR 의 머지 게이트 (schema validation + semantic coverage + LLM-as-judge + baseline diff)
+# Eval pipeline — merge gate for PRs that change discover-pipeline prompts
 bash scripts/run-eval.sh                      # Results saved to eval_results/<timestamp>.json
 
 # Development
-uv run pytest                                 # Run tests
-uv run ruff check src/ tests/                 # Lint
-uv run mypy src/                              # Type check (strict)
+pnpm install                                  # Install deps
+pnpm test                                     # vitest run
+pnpm lint                                     # biome check
+pnpm typecheck                                # tsc --noEmit
+pnpm build                                    # tsup → dist/cli.js + dist/mcp.js
 ```

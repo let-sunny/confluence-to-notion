@@ -1,169 +1,187 @@
 # Contributing
 
-`confluence-to-notion` 기여 가이드입니다. 이 프로젝트는 Claude Code 서브에이전트 파이프라인으로 Confluence → Notion 변환 규칙을 자동 발견하고, 결정론적 컨버터로 마이그레이션을 수행합니다.
+Thanks for your interest in `confluence-to-notion`. This project uses a Claude
+Code subagent pipeline to discover Confluence → Notion transformation rules
+and a deterministic TypeScript converter to apply them.
 
-이 문서는 개발 환경 구성부터 에이전트 추가, 프롬프트 변경 정책, 테스트, PR 규칙, 코드 스타일까지 기여자가 알아야 할 사항을 순서대로 정리합니다. 자세한 규칙은 각 섹션 끝의 `.claude/rules/*.md`를 참고하세요.
+This document covers development setup, adding a new agent, the prompt-change
+policy, testing, PR rules, and code style. Deeper rules live in
+`.claude/rules/*.md`; each section links to the relevant file.
+
+> **Port status (April 2026).** The repo is mid-port from Python to
+> TypeScript (issue #129). PR 1/5 lands the scaffold; subcommands and the
+> converter follow in PRs 2–4 and `npm` publish in PR 5. Until then, `c2n`
+> answers only `--version` / `--help`.
 
 ---
 
-## 1. 개발 환경 설정 (Development Environment Setup)
+## 1. Development environment setup
 
-### 요구 사항
+### Requirements
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (패키지 매니저)
-- Confluence / Notion API 자격 증명
+- Node 20 LTS (matches `.nvmrc`)
+- [pnpm](https://pnpm.io/) 9+
+- [Claude Code CLI](https://docs.claude.com/claude-code) (`claude`) — needed
+  to run the discovery agents locally
+- Confluence / Notion API credentials (for manual migration runs)
 
-### 설치
+### Install
 
 ```bash
 git clone https://github.com/let-sunny/confluence-to-notion.git
 cd confluence-to-notion
-uv sync
+pnpm install
 cp .env.example .env
 ```
 
-### 환경 변수
+### Environment variables
 
-`.env` 파일에 다음을 설정합니다. 공개 위키라면 `CONFLUENCE_BASE_URL`만 필수입니다.
+Set these in `.env`. Public wikis only need `CONFLUENCE_BASE_URL`.
 
-| 변수 | 필수 | 설명 |
+| Name | Required | Description |
 | --- | --- | --- |
-| `CONFLUENCE_BASE_URL` | ✓ | Confluence 베이스 URL (예: `https://cwiki.apache.org/confluence`) |
-| `CONFLUENCE_EMAIL` | 비공개 위키 | 계정 이메일 |
-| `CONFLUENCE_API_TOKEN` | 비공개 위키 | API 토큰 |
-| `CONFLUENCE_API_PATH` | 선택 | 자체 호스팅 경로 오버라이드 (기본값 `/rest/api`) |
-| `NOTION_API_TOKEN` | ✓ | Notion 인티그레이션 토큰 (`ntn_...`) |
-| `NOTION_ROOT_PAGE_ID` | ✓ | 마이그레이션 대상 Notion 루트 페이지 ID |
+| `CONFLUENCE_BASE_URL` | ✓ | Confluence base URL (e.g. `https://cwiki.apache.org/confluence`). |
+| `CONFLUENCE_EMAIL` | private only | Atlassian account email. |
+| `CONFLUENCE_API_TOKEN` | private only | Atlassian API token. |
+| `CONFLUENCE_API_PATH` | optional | Self-hosted path override (default `/rest/api`). |
+| `NOTION_API_TOKEN` | ✓ (for Notion writes) | Notion integration token (`ntn_…` or `secret_…`). |
+| `NOTION_ROOT_PAGE_ID` | ✓ (for Notion writes) | Target Notion parent page id. |
 
-### 연결 확인
+### Verify
 
 ```bash
-uv run c2n notion-ping
+pnpm test        # vitest
+pnpm lint        # biome check
+pnpm typecheck   # tsc --noEmit
+pnpm build       # tsup → dist/cli.js + dist/mcp.js
 ```
-
-Notion 토큰이 유효하면 워크스페이스 정보가 출력됩니다.
 
 ---
 
-## 2. 에이전트 추가 방법 (How to Add an Agent)
+## 2. Adding an agent
 
-에이전트는 **Claude Code 서브에이전트**이며, 각 에이전트는 독립된 `claude -p` 세션으로 실행됩니다. 에이전트 간 상태는 공유되지 않으며, 오직 **파일**로만 통신합니다.
+Agents are **Claude Code subagents**; each runs in its own `claude -p` session
+with a **clean context**. They communicate only via files on disk.
 
-### 2.1 에이전트 정의 파일
+### 2.1 Agent definition file
 
-`.claude/agents/<pipeline>/<name>.md` 경로에 마크다운 파일을 생성합니다. 파이프라인 디렉터리와 파일 이름은 모두 kebab-case입니다.
+Create a markdown file at `.claude/agents/<pipeline>/<name>.md`. Both the
+pipeline directory and the file name are kebab-case.
 
-에이전트 파일은 다음 순서로 작성합니다 (`.claude/rules/prompts.md` 참고):
+Agent files follow this order (see `.claude/rules/prompts.md`):
 
-1. **Purpose** — 에이전트가 하는 일을 한 줄로 요약
-2. **Input** — 읽는 파일과 기대 포맷
-3. **Output** — 생성하는 파일과 기대 포맷
-4. **Instructions** — 상세 프롬프트 (제약, 예시 포함)
-5. **Output schema reference** — 출력이 만족해야 할 Pydantic 모델
+1. **Purpose** — one line summarising what the agent does.
+2. **Input** — files the agent reads and their expected format.
+3. **Output** — files the agent produces and their expected format.
+4. **Instructions** — detailed prompt (constraints, examples).
+5. **Output schema reference** — which zod/Pydantic model the output must match.
 
-### 2.2 Pydantic-as-contract 규칙
+### 2.2 Schema-as-contract rule
 
-에이전트 출력 스키마는 코드가 먼저입니다.
+Agent output schemas are code-first.
 
-1. `src/**/schemas.py`에 Pydantic v2 모델을 정의한다.
-2. 에이전트는 이 모델과 호환되는 JSON을 생성한다.
-3. 오케스트레이션 스크립트는 `uv run c2n validate-output <file> <schema>`로 출력을 검증한다.
+1. Define a zod schema in `src/**/schemas.ts` (once PR 2 ships the schemas
+   module; until then the Python Pydantic schemas on the pre-#129 tag are the
+   reference).
+2. The agent produces JSON compatible with that schema.
+3. The orchestration script validates the output via `c2n validate-output
+   <file> <schema>` (subcommand lands in PR 4).
 
-모델이 계약이므로, 에이전트 프롬프트는 스키마를 참조하고 예시를 포함해야 합니다.
+Because the schema is the contract, agent prompts must reference it and
+include examples.
 
-### 2.3 파이프라인 배선
+### 2.3 Pipeline wiring
 
-오케스트레이션은 **bash 스크립트**입니다 (`scripts/discover.sh`, `scripts/develop.sh`). Claude 슬래시 커맨드가 아닙니다. 흐름 제어는 LLM 판단이 아닌 코드에 드러나야 합니다.
+Orchestration is a **bash script** (`scripts/discover.sh`,
+`scripts/develop.sh`), not a Claude slash command. Flow control must be
+visible in code — not hidden in LLM judgement.
 
-새 단계를 추가할 때는 기존 `run_step` / `run_agent` 패턴을 따릅니다. 에이전트 본문과 런타임 지시(입력 경로, 출력 경로)를 한 프롬프트로 이어 붙입니다.
+Follow the existing `run_step` / `run_agent` helpers when adding a stage.
+Concatenate the agent body and the runtime directives (input/output paths)
+into a single prompt.
 
 ```bash
-# scripts/discover.sh — 예: 패턴 발견 단계와 유사
+# scripts/discover.sh — e.g. pattern-discovery step
 claude -p "$(cat .claude/agents/discover/pattern-discovery.md)
 
 Analyze the XHTML files in samples/ and write discovered patterns to output/patterns.json" \
   --allowedTools "Read,Write,Bash,Glob,Grep,Edit"
 ```
 
-`scripts/develop.sh`는 `run_agent` 헬퍼로 동일하게 `claude -p "<프롬프트>" --allowedTools ...` 형태를 사용합니다.
+`scripts/develop.sh` uses the same `run_agent` helper. Each stage reads files
+produced by the previous stage and writes files for the next. Every stage must
+be re-runnable via `--from N`.
 
-각 단계는 이전 단계가 생성한 파일을 입력으로 받고, 다음 단계를 위한 파일을 출력합니다. 실패한 단계만 재실행할 수 있도록 `--from N` 재개 옵션을 유지합니다.
+### 2.4 File-based communication
 
-### 2.4 파일 기반 통신
+- Inputs are files on disk (e.g. `samples/*.xhtml`, `output/patterns.json`).
+- Outputs are files on disk (e.g. `output/rules.json`, `output/dev/plan.json`).
+- **No** shared memory or context injection between agents.
 
-- 입력은 디스크의 파일 (예: `samples/*.xhtml`, `output/patterns.json`)
-- 출력은 디스크의 파일 (예: `output/rules.json`, `output/dev/plan.json`)
-- 공유 메모리, 컨텍스트 주입 금지
-
-참고: [`.claude/rules/agents.md`](./.claude/rules/agents.md), [`.claude/rules/prompts.md`](./.claude/rules/prompts.md)
+Related rules: [`.claude/rules/agents.md`](./.claude/rules/agents.md),
+[`.claude/rules/prompts.md`](./.claude/rules/prompts.md).
 
 ---
 
-## 3. 프롬프트 변경 정책 (Prompt Modification Policy)
+## 3. Prompt modification policy
 
-`.claude/agents/**/*.md` 파일을 수정한 PR은 **반드시** eval을 실행한 뒤 제출합니다.
+PRs that change `.claude/agents/discover/*.md` (the discover pipeline) **must**
+run the eval gate before merge:
 
 ```bash
 bash scripts/run-eval.sh
 ```
 
-- 결과는 `eval_results/<timestamp>.json`에 저장됩니다.
-- Eval 고정 입력(fixture)은 `tests/fixtures/eval/`에 있습니다.
+- Results land in `eval_results/<timestamp>.json`.
+- The gate combines schema validation + semantic coverage + baseline diff (see
+  ADR-006).
 
-### 품질 기준
+If there is a regression, either fix the prompt and re-run, or — when the
+change is intentional — update the baseline and explain why in the PR body.
 
-- **스키마 검증 통과** — 에이전트 출력이 대응되는 Pydantic 모델로 파싱되어야 합니다.
-- **Fixture 비교 무회귀** — 고정 입력에 대한 출력이 기준선에서 품질이 저하되지 않아야 합니다.
+Develop-pipeline prompts (`dev-planner`, `dev-implementer`, `dev-reviewer`,
+`dev-fixer`) are **not** gated by eval.
 
-회귀가 발생했다면 프롬프트를 수정해 재시도하거나, 변경이 의도된 것이라면 기준선을 업데이트한 이유를 PR 본문에 명시합니다.
-
-참고: [`.claude/rules/prompts.md`](./.claude/rules/prompts.md)
+Reference: [`.claude/rules/prompts.md`](./.claude/rules/prompts.md).
 
 ---
 
-## 4. 테스트 가이드 (Testing Guide)
+## 4. Testing guide
 
-### TDD 사이클
+### TDD cycle
 
-`src/` 아래 Python 코드는 **테스트 우선**으로 작성합니다.
+TypeScript code in `src/` is written **test-first**.
 
-1. **Red** — 실패하는 테스트 작성
-2. **Green** — 테스트를 통과시키는 최소 구현
-3. **Refactor** — 동작을 유지한 채 개선
+1. **Red** — write a failing test.
+2. **Green** — minimum change to make it pass.
+3. **Refactor** — improve while keeping behaviour.
 
-### 도구와 구조
+### Tools and layout
 
-- 프레임워크: `pytest` + `pytest-asyncio`
-- 테스트 파일 이름: `test_<module>.py`
-- 픽스처 위치: `tests/fixtures/<agent>/`
-- 공유 픽스처: `tests/conftest.py`
-- 외부 I/O(Confluence, Notion, Anthropic)는 유닛 테스트에서 **반드시 모킹**
-- httpx 요청 모킹: `respx`
-- 통합 테스트: `tests/integration/`, 기본 스킵, `-m integration`으로 실행
+- Test runner: `vitest` (+ `@vitest/coverage-v8`).
+- Test file naming: `*.test.ts` under `tests/`.
+- Shared fixtures under `tests/fixtures/`.
+- External I/O (Confluence, Notion, Anthropic) must be mocked in unit tests.
+  HTTP mocks use `undici`'s `MockAgent` or `msw`.
+- Integration tests live under `tests/integration/` and are opt-in.
 
-### 커버리지
-
-- `src/` 커버리지 목표: **80%+**
-- CLI 배선 코드는 커버리지 요구 없음
-
-### 실행
+### Run
 
 ```bash
-uv run pytest                          # 전체 유닛 테스트
-uv run pytest -m integration           # 통합 테스트
-uv run pytest tests/unit/test_foo.py   # 특정 파일
+pnpm test                            # vitest run
+pnpm test:watch                      # vitest
+pnpm test tests/cli.test.ts          # single file
 ```
 
-참고: [`.claude/rules/testing.md`](./.claude/rules/testing.md)
+Reference: [`.claude/rules/testing.md`](./.claude/rules/testing.md).
 
 ---
 
-## 5. Pull Request 규칙 (Pull Request Rules)
+## 5. Pull request rules
 
-### 커밋 메시지
+### Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/) 형식을 따릅니다.
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>: <subject>
@@ -171,57 +189,65 @@ uv run pytest tests/unit/test_foo.py   # 특정 파일
 [optional body]
 ```
 
-허용 타입: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+Accepted types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
-### PR 생성
+### PR workflow
 
-- **Squash merge 전용** — 병합 시 하나의 커밋으로 합쳐집니다.
-- 관련 이슈를 PR 본문에 `Closes #N` 키워드로 연결하면 병합 시 자동 클로즈됩니다.
-- PR은 작고 주제가 분명해야 합니다. 여러 관심사가 섞여 있다면 분리하세요.
-- 프롬프트를 수정한 PR은 **섹션 3 (프롬프트 변경 정책)**의 eval 결과를 본문에 첨부하거나 요약합니다.
+- **Squash merge only** — the PR becomes one commit on `main`.
+- Link the related issue in the PR body with `Closes #N` so the merge
+  auto-closes it.
+- Keep PRs small and focused. Split unrelated concerns.
+- Every PR must be **in English** — title, body, commit messages, inline
+  discussion. Conversation with Claude may be in Korean, but the repo-bound
+  artefacts are English (see `CLAUDE.md > Language`).
+- If the PR changes `.claude/agents/discover/*.md`, attach the eval summary
+  per section 3.
 
-### 체크리스트
+### Checklist
 
-- [ ] `uv run pytest` 통과
-- [ ] `uv run ruff check src/ tests/` 통과
-- [ ] `uv run mypy src/` 통과 (strict)
-- [ ] discover 파이프라인 프롬프트 (`pattern-discovery`, `rule-proposer`) 수정 시 `bash scripts/run-eval.sh` 실행 (develop 파이프라인 프롬프트는 대상 아님)
-- [ ] `Closes #N` 링크 포함
+- [ ] `pnpm test` passes
+- [ ] `pnpm lint` passes
+- [ ] `pnpm typecheck` passes (strict)
+- [ ] `bash scripts/run-eval.sh` attached when discover-pipeline prompts changed
+- [ ] `Closes #N` in the PR body
 
 ---
 
-## 6. 코드 스타일 (Code Style)
+## 6. Code style
 
-### 린트와 타입 체크
+### Lint and type check
 
 ```bash
-uv run ruff check src/ tests/   # 라인 길이 100, target py311, isort 호환
-uv run mypy src/                # src/에 대해 strict
+pnpm lint        # biome check (format + recommended rules)
+pnpm typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
 ```
 
-### 규약
+### Conventions
 
-- Python **3.11+** 문법 허용 (`match`, `Self`, `StrEnum` 등)
-- 공개 함수는 **전체 타입 힌트** 필수
-- 데이터 모델은 **Pydantic v2** — `model_config` 스타일 (내부 `Config` 클래스 금지)
-- I/O는 **async-first** — `httpx.AsyncClient` 사용, `requests` 금지
-- 출력은 `rich` 사용 — `print()` 금지
-- 경로는 `pathlib.Path` 선호 (`os.path` 지양)
-- import 정렬은 ruff(isort 호환)에 위임
+- TypeScript 5+, ESM only (`"type": "module"`).
+- Strict mode with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.
+- Data shapes via **zod** schemas (not hand-rolled interfaces) whenever the
+  value crosses a serialisation boundary.
+- I/O is **async-first**; use native `fetch` / `undici`, not wrapper libraries.
+- Logging goes through a single module (to be added with the converter port);
+  no ad-hoc `console.log`. The CLI uses plain stderr writes for errors.
+- Import paths use the bundler resolver — no `.js` extension gymnastics beyond
+  what `moduleResolution: "Bundler"` requires.
 
-### 보안
+### Security
 
-- 시크릿은 절대 커밋하지 않습니다. 자격 증명은 `.env` + `pydantic-settings`로만 다룹니다.
+- Never commit secrets. Credentials flow through `.env` → typed config module
+  only.
 
-참고: [`.claude/rules/python-style.md`](./.claude/rules/python-style.md)
+Reference: biome + `tsconfig.json` are authoritative until a
+`.claude/rules/typescript-style.md` lands in a later PR.
 
 ---
 
-## 참고 자료 (Source of Truth)
+## Source of truth
 
-이 문서는 개요이며, 세부 규칙은 아래 파일이 단일 출처입니다.
+This document is an overview. Detailed rules live in:
 
-- [`.claude/rules/agents.md`](./.claude/rules/agents.md) — 서브에이전트 정의와 오케스트레이션
-- [`.claude/rules/prompts.md`](./.claude/rules/prompts.md) — 프롬프트 파일 구조와 변경 정책
-- [`.claude/rules/testing.md`](./.claude/rules/testing.md) — 테스트 구조, 커버리지, 모킹
-- [`.claude/rules/python-style.md`](./.claude/rules/python-style.md) — 코딩 스타일, 타입 힌트, async 패턴
+- [`.claude/rules/agents.md`](./.claude/rules/agents.md) — subagents + orchestration
+- [`.claude/rules/prompts.md`](./.claude/rules/prompts.md) — prompt structure + change policy
+- [`.claude/rules/testing.md`](./.claude/rules/testing.md) — test structure + coverage + mocking
