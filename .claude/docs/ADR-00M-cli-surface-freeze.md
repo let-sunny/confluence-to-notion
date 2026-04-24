@@ -100,7 +100,7 @@ No flags.
 
 | Arg / Flag | Type | Default | Env fallback | Required | Semantics |
 |---|---|---|---|---|---|
-| `CONFLUENCE_URL` (positional) | TEXT | _none_ | — | No | When set, `c2n` auto-dispatches to a single-page or tree/space fan-out flow. |
+| `CONFLUENCE_URL` (positional) | TEXT | _none_ | — | No (but required for the preferred form; `--url` required otherwise, see legacy table) | When set, `c2n` auto-dispatches to a single-page or tree/space fan-out flow. |
 | `--to` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion parent (page URL or page id). URLs are normalized: last path segment with hyphens stripped. |
 | `--name` | TEXT | _none_ | — | No | Override the run slug under `output/runs/`. |
 | `--rediscover` | FLAG | `false` | — | No | Force re-running `scripts/discover.sh` even when `output/rules.json` exists. |

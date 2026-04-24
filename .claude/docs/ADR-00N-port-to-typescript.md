@@ -89,7 +89,7 @@ correctly.
 
 ## Why
 
-1. **Distribution reach.** The primary install target is `npm i -g c2n` plus
+1. **Distribution reach.** The primary install target is `npm i -g confluence-to-notion` (exposing the `c2n` and `c2n-mcp` binaries) plus
    stdio MCP servers that Claude Code launches with `npx`; both are first-class
    in the Node ecosystem and second-class in Python (`uvx` works but requires
    uv). Meeting users where they are reduces install friction to zero.
