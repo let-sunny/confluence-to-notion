@@ -83,7 +83,7 @@ function tokenize(input: string): string[] {
 // Join `\`-continued lines, strip simple heredoc contents, and emit the
 // (lineNumber, logicalLine) pairs that survive.
 function joinScriptLines(content: string): { line: number; text: string }[] {
-  const lines = content.split("\n");
+  const lines = content.split("\n").map((l) => l.replace(/\r$/, ""));
   const out: { line: number; text: string }[] = [];
   let buffer = "";
   let bufferStart = 1;
