@@ -41,5 +41,5 @@ pnpm exec c2n validate-output output/patterns.json discovery
 pnpm exec c2n validate-output output/proposals.json proposer
 
 # Step 3: Semantic coverage + baseline diff (+ optional LLM-as-judge)
-echo "--- Semantic coverage + baseline ---"
-uv run python -m confluence_to_notion.eval output/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
+echo "--- Semantic coverage + baseline (TS eval harness) ---"
+pnpm exec tsx src/eval/index.ts output/ eval_results/ samples/ ${EVAL_FLAGS[@]+"${EVAL_FLAGS[@]}"}
