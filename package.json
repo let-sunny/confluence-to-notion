@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^20.17.9",
     "@vitest/coverage-v8": "^2.1.8",
     "msw": "2.13.5",
