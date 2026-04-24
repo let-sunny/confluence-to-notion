@@ -73,7 +73,7 @@ Go through every item. Each failed item becomes an issue in the review output.
 #### Completeness
 - [ ] All tasks in the plan are addressed
 - [ ] No unfinished TODOs left without justification
-- [ ] Build passes: `uv run ruff check && uv run mypy src/ && uv run pytest`
+- [ ] Build passes: `pnpm lint && pnpm typecheck && pnpm test`
 
 ### Severity levels
 

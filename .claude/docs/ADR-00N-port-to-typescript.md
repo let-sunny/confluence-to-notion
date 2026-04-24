@@ -64,6 +64,21 @@ runtime deps land in the PR that first needs them (zod in PR 2, parse5 in PR 2,
   `package.json` and let renovate/changesets bump it deliberately rather than
   accepting a silent caret upgrade at install time.
 
+- `undici@7.25.0` — exact pin (no `^`, no `~`). Consumed by
+  `src/confluence/client.ts` to build a keepalive-enabled `Agent`; `c2n
+  migrate-tree-pages` runs traverse hundreds of pages and benefit from a shared
+  connection pool with deterministic retry behaviour. Freezing the version keeps
+  the retry/keepalive semantics byte-stable between installs. The 7.x line
+  declares `engines.node >=20.18.1`, which matches the repo's Node 20 LTS floor
+  across `.nvmrc` (`20`), `package.json > engines.node` (`>=20`), and the CI
+  matrix node-versions in `.github/workflows/ci.yml` (`20`, `22`). The 8.x line
+  was considered but rejected: it requires Node `>=22.19.0` and would break the
+  Node 20 CI legs at install time (`EBADENGINE`).
+- `msw@2.13.5` — exact pin (no `^`, no `~`). Used in `tests/confluence/` to
+  intercept HTTP traffic against a fake Confluence host, so CI never hits a real
+  Confluence instance. Pinning avoids request-handler shape drift across minor
+  versions silently breaking the adapter test suite.
+
 ### Package name
 
 - **Primary**: `confluence-to-notion` (unscoped on npm). Chosen over a scope so
