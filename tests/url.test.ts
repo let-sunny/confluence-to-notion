@@ -90,6 +90,12 @@ describe("parseConfluenceUrl", () => {
       expect(() => parseConfluenceUrl("ftp://example.com/foo")).toThrow(TypeError);
     });
 
+    it("throws a TypeError (not URIError) on a display URL with a malformed percent-escape", () => {
+      expect(() =>
+        parseConfluenceUrl("https://cwiki.apache.org/confluence/display/KAFKA/Bad%E0Title"),
+      ).toThrow(TypeError);
+    });
+
     it("throws a TypeError on an http(s) URL with no recognisable Confluence shape", () => {
       expect(() => parseConfluenceUrl("https://example.atlassian.net/some/unknown/path")).toThrow(
         TypeError,

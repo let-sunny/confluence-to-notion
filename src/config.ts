@@ -51,16 +51,5 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
     throw new ConfigError(message);
   }
 
-  const parsed = ConfigSchema.safeParse(values);
-  if (!parsed.success) {
-    const message = parsed.error.issues
-      .map((issue) => {
-        const name = issue.path.join(".");
-        return `Invalid env var: ${name} — ${issue.message}`;
-      })
-      .join("\n");
-    throw new ConfigError(message);
-  }
-
-  return Object.freeze(parsed.data) as Config;
+  return Object.freeze(values) as Config;
 }

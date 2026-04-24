@@ -42,8 +42,12 @@ function splitPath(pathname: string): string[] {
   return pathname.split("/").filter((segment) => segment.length > 0);
 }
 
-function decodeTitle(raw: string): string {
-  return decodeURIComponent(raw.replace(/\+/g, " "));
+function decodeTitle(raw: string): string | undefined {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, " "));
+  } catch {
+    return undefined;
+  }
 }
 
 function matchDisplay(segments: string[]): ParsedConfluenceUrl | undefined {
@@ -52,11 +56,9 @@ function matchDisplay(segments: string[]): ParsedConfluenceUrl | undefined {
   const spaceKey = segments[index + 1];
   const rawTitle = segments[index + 2];
   if (spaceKey === undefined || rawTitle === undefined) return undefined;
-  return {
-    kind: "display",
-    spaceKey,
-    title: decodeTitle(rawTitle),
-  };
+  const title = decodeTitle(rawTitle);
+  if (title === undefined) return undefined;
+  return { kind: "display", spaceKey, title };
 }
 
 function matchShortlink(segments: string[]): ParsedConfluenceUrl | undefined {
