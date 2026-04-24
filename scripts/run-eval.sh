@@ -37,8 +37,8 @@ fi
 
 # Step 2: Validate schemas
 echo "--- Validating output schemas ---"
-uv run c2n validate-output output/patterns.json discovery
-uv run c2n validate-output output/proposals.json proposer
+pnpm exec c2n validate-output output/patterns.json discovery
+pnpm exec c2n validate-output output/proposals.json proposer
 
 # Step 3: Semantic coverage + baseline diff (+ optional LLM-as-judge)
 echo "--- Semantic coverage + baseline ---"
