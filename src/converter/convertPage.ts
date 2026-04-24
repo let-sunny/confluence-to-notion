@@ -1,27 +1,18 @@
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
-import { type ConversionResult, ConversionResultSchema } from "./schemas.js";
+import { convertXhtmlToNotionBlocks } from "./converter.js";
+import type { ConversionResult } from "./schemas.js";
 
 /**
- * Minimal XHTML → Notion conversion for the CLI until the full deterministic
- * converter from PR 2/5 lands. Produces a single paragraph block from visible text.
+ * CLI entry point used by `c2n convert`. Delegates to the deterministic
+ * converter from {@link convertXhtmlToNotionBlocks} with the finalized
+ * ruleset. The production resolver (ResolutionStore / Resolver) is threaded
+ * in by the caller once the resolve pass lands in 2c; for now we hand an
+ * undefined resolver so unresolved items surface with placeholder URLs.
  */
 export function convertXhtmlToConversionResult(
-  _rules: FinalRuleset,
+  rules: FinalRuleset,
   xhtml: string,
   pageId: string,
 ): ConversionResult {
-  const plain = xhtml
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const content = (plain.length > 0 ? plain : `page ${pageId}`).slice(0, 1990);
-  const block = {
-    type: "paragraph",
-    paragraph: {
-      rich_text: [{ type: "text", text: { content: content } }],
-    },
-  };
-  return ConversionResultSchema.parse({ blocks: [block], unresolved: [], usedRules: {} });
+  return convertXhtmlToNotionBlocks(xhtml, { ruleset: rules, pageId });
 }
