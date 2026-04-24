@@ -18,6 +18,12 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 - Lint/format: ruff
 - Type check: mypy (strict on src/)
 
+## Language
+
+- **CRITICAL**: This repo is a global-audience portfolio. **Every artifact checked into the repo or pushed to GitHub must be in English.** This covers: commit messages, PR titles/bodies, issue titles/bodies/comments, README, `docs/`, `.claude/agents/*.md`, `.claude/rules/*.md`, `CLAUDE.md` itself, code comments, docstrings, log/error messages, and template files.
+- Interactive conversation between the user and Claude may be in Korean; only the repo-bound output is English.
+- When editing existing files that contain Korean, rewrite the touched passages in English. Bulk translation of untouched files should only happen when explicitly requested.
+
 ## Architecture Rules
 
 - **CRITICAL**: Agents are Claude Code subagents in `.claude/agents/<pipeline>/<name>.md` — NOT Python modules
@@ -30,10 +36,10 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 ## Development Process
 
 - **CRITICAL**: TDD — write a failing test first, then implement (for Python code in `src/`)
-- **CRITICAL**: **discover-pipeline** 프롬프트(`pattern-discovery`, `rule-proposer`) 변경 PR은 `scripts/run-eval.sh` 결과(schema validation + semantic coverage + LLM-as-judge + baseline diff)를 **머지 게이트**로 사용한다. #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecate) 재설계로 eval 이 머지 게이트 신뢰성을 회복했음 — ADR-006 참조. PR 본문에 `eval_results/<timestamp>.json` 요약을 첨부한다(PR 템플릿 참조).
+- **CRITICAL**: PRs that change **discover-pipeline** prompts (`pattern-discovery`, `rule-proposer`) must use the output of `scripts/run-eval.sh` (schema validation + semantic coverage + LLM-as-judge + baseline diff) as a **merge gate**. The redesign in #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecation) restored the gate's reliability — see ADR-006. Attach the `eval_results/<timestamp>.json` summary in the PR body (see PR template).
 - Conventional commits: `feat|fix|docs|refactor|test|chore`
 - Squash merge only
-- PR 생성 시 관련 이슈를 `Closes #N` 키워드로 본문에 연결 (머지 시 자동 클로즈)
+- When opening a PR, link the related issue with a `Closes #N` keyword in the body (auto-closes on merge)
 
 ## Additional Rules
 
@@ -68,7 +74,7 @@ bash scripts/discover.sh samples/ --url <url> --from 3    # Resume from step 3 (
 bash scripts/develop.sh <issue-number>              # Run full pipeline
 bash scripts/develop.sh <issue-number> --from 3     # Resume from step 3
 
-# Eval pipeline — discover-pipeline 프롬프트 변경 PR 의 머지 게이트 (schema validation + semantic coverage + LLM-as-judge + baseline diff)
+# Eval pipeline — merge gate for PRs that change discover-pipeline prompts (schema validation + semantic coverage + LLM-as-judge + baseline diff)
 bash scripts/run-eval.sh                      # Results saved to eval_results/<timestamp>.json
 
 # Development

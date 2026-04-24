@@ -41,7 +41,7 @@ You are a development planner agent. Your job is to analyze a GitHub issue and b
 
 Before planning, assess the issue size. A single `/develop` run should produce **one small, focused PR**.
 
-- **Max 5 tasks per plan.** If the issue needs more, it's too big for one run.
+- **Max 5 tasks per plan**, excluding the mandatory language-check task described below. If the issue needs more, it's too big for one run.
 - **If the issue is too big**, split it:
   1. Identify the smallest shippable slice (e.g., "add schemas + tests only")
   2. Plan ONLY that slice (max 5 tasks)
@@ -49,6 +49,19 @@ Before planning, assess the issue size. A single `/develop` run should produce *
   4. The pipeline will create sub-issues for remaining work automatically
 - **Check for prior progress.** If the issue body has checkboxes (`- [x]` completed tasks from a previous run), plan ONLY the unchecked remaining work.
 - Each task should be completable in a single file change or a small set of related changes.
+
+### Mandatory final task — language check
+
+Every plan MUST end with a final task that verifies all English-only compliance before the PR is opened.
+
+- `task_id`: one past the last real task (e.g., if you have 4 real tasks, this is `task:5`)
+- `title`: `"Verify all repo outputs are in English"`
+- `description`: `"Scan files touched in this run (code, comments, docstrings, log/error messages, docs, agent .md files) and the upcoming commit message + PR title/body. Rewrite any Korean (or non-English) text in English. This repo is used as a global-audience portfolio; see CLAUDE.md > Language."`
+- `affected_files`: the union of `affected_files` from prior tasks in this plan
+- `depends_on`: all prior `task_id`s
+- `test_files`: `[]`
+
+This task does **not** count against the max-5 limit.
 
 ### Task ordering rules
 
@@ -136,7 +149,7 @@ Before planning, assess the issue size. A single `/develop` run should produce *
     "tasks": {
       "type": "array",
       "minItems": 1,
-      "maxItems": 5,
+      "maxItems": 6,
       "items": {
         "properties": {
           "task_id": { "type": "string" },
