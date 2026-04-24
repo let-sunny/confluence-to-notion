@@ -89,10 +89,10 @@ while IFS='|' read -r wiki_url space_key; do
     # Step 3: Fetch pages
     echo "==> Step 3: Fetch pages for ${space_key} from ${wiki_url}"
     if [[ "$DRY_RUN" == "true" ]]; then
-        echo "    [dry-run] Would run: CONFLUENCE_BASE_URL=${wiki_url} uv run c2n fetch --space ${space_key} --limit 50 --out-dir ${SAMPLES_SUBDIR}"
+        echo "    [dry-run] Would run: CONFLUENCE_BASE_URL=${wiki_url} pnpm exec c2n fetch --space ${space_key} --limit 50 --out-dir ${SAMPLES_SUBDIR}"
     else
         mkdir -p "$SAMPLES_SUBDIR"
-        if ! CONFLUENCE_BASE_URL="${wiki_url}" uv run c2n fetch \
+        if ! CONFLUENCE_BASE_URL="${wiki_url}" pnpm exec c2n fetch \
             --space "$space_key" \
             --limit 50 \
             --out-dir "$SAMPLES_SUBDIR"; then
