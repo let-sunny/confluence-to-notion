@@ -54,6 +54,16 @@ PR 1 lands pnpm + TypeScript + tsup + vitest + biome + commander. The other
 runtime deps land in the PR that first needs them (zod in PR 2, parse5 in PR 2,
 `@notionhq/client` in PR 3, etc.).
 
+### Pinned deps
+
+- `@notionhq/client@5.20.0` — exact pin (no `^`, no `~`). The Notion client's
+  API surface is small but churns frequently across minor versions (rich-text
+  shape tweaks, parent-reference variants, new block/property types). `c2n
+  migrate-*` commands and the golden-fixture equivalence gate depend on that
+  surface remaining byte-stable between installs, so we freeze the version in
+  `package.json` and let renovate/changesets bump it deliberately rather than
+  accepting a silent caret upgrade at install time.
+
 ### Package name
 
 - **Primary**: `confluence-to-notion` (unscoped on npm). Chosen over a scope so
