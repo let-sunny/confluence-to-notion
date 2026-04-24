@@ -26,7 +26,7 @@ Captured from `src/confluence_to_notion/cli.py` and
 | `CONFLUENCE_API_PATH` | `/rest/api` | Always (has default) | Must start with `/`. Override for self-hosted Confluence. |
 | `NOTION_API_TOKEN` | _unset_ | `notion-ping` + every `migrate*` command | Must start with `ntn_` or `secret_`. |
 | `NOTION_ROOT_PAGE_ID` | _unset_ | Fallback for `--target` / `--to` | Every `migrate*` command falls back to this when the flag is omitted. |
-| `ANTHROPIC_API_KEY` | _unset_ | Only `scripts/run-eval.sh --llm-judge` | Never required by the CLI itself. |
+| `ANTHROPIC_API_KEY` | _unset_ | Only `c2n eval --llm-judge` (or `scripts/run-eval.sh --llm-judge`) | Never required by the CLI itself. |
 
 ## Subcommands
 
@@ -63,6 +63,18 @@ No flags. Requires `NOTION_API_TOKEN` and `NOTION_ROOT_PAGE_ID`.
 > Reminder shim: prints the correct `bash scripts/discover.sh` invocation and exits 1. Not a real pipeline entry point.
 
 No flags.
+
+### `c2n eval`
+
+> Semantic coverage over sample XHTML, optional LLM-as-judge, and baseline diff vs the latest prior snapshot under `eval_results/`.
+
+| Arg / Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `OUTPUT_DIR` (positional) | PATH | `output` | — | No | Directory containing `patterns.json` and `proposals.json` (validated before coverage). |
+| `EVAL_RESULTS_DIR` (positional) | PATH | `eval_results` | — | No | Directory where `eval_results/<timestamp>.json` snapshots are written and read for baseline diff. |
+| `SAMPLES_DIR` (positional) | PATH | _none_ | — | No | Sample XHTML directory; **required** when `--llm-judge` is set (semantic coverage also uses it when provided). |
+| `--llm-judge` | FLAG | `false` | — | No | When set, runs the Anthropic judge pass if `ANTHROPIC_API_KEY` is present; otherwise judge output stays null. |
+| `--fail-on-regression` | FLAG | `false` | — | No | Exit non-zero when baseline comparison marks a regression. |
 
 ### `c2n validate-output`
 

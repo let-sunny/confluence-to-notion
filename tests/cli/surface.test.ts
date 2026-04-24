@@ -128,6 +128,7 @@ const EXPECTED_SUBCOMMANDS = [
   "fetch-tree",
   "notion-ping",
   "discover",
+  "eval",
   "validate-output",
   "finalize",
   "convert",

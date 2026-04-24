@@ -22,7 +22,7 @@
     "lint": "biome check",
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
-    "eval:pipeline": "tsx src/eval/index.ts output/ eval_results/ samples/"
+    "eval:pipeline": "pnpm exec c2n eval output/ eval_results/ samples/"
   },
   "dependencies": {
     "@notionhq/client": "5.20.0",
