@@ -37,3 +37,10 @@
 - **Decision**: discover-pipeline 프롬프트(`pattern-discovery`, `rule-proposer`) 변경 PR 의 머지 게이트로 `scripts/run-eval.sh` 결과(schema validation + semantic coverage + LLM-as-judge + baseline diff)를 사용한다. ADR-004 의 '정답표 enumerate 한계' 결정은 보존하되, #84 (LLM-as-judge) / #85 (baseline snapshot) / #86 (fixture deprecate) 재설계 이후의 현 정책으로 ADR-004 를 supersede.
 - **Why**: ADR-004 가 지적한 N:M 매핑·rule_id 비결정성 한계는 정답표 매칭 방식에 국한. 의미적 커버리지 + LLM-as-judge + baseline diff 조합은 개별 rule_id 에 묶이지 않고 변환 품질의 회귀를 잡을 수 있어 머지 게이트로 재사용 가능.
 - **Impact**: CLAUDE.md Development Process 문구가 '머지 게이트' 로 복귀(이 ADR 참조). `.github/pull_request_template.md` 에 discover-pipeline 프롬프트 변경 여부 체크박스 + `eval_results/<timestamp>.json` 첨부 가이드 섹션 추가. 스코프는 discover-pipeline 한정 — 그 외 PR 은 'N/A (discover-pipeline 무관)' 표기 허용. 회귀 감지는 `scripts/run-eval.sh --fail-on-regression` 로 엄격 모드 지정 가능.
+
+## Standalone ADRs
+
+Decisions large enough to need their own file live alongside this index:
+
+- [ADR-00N — Port to TypeScript](./ADR-00N-port-to-typescript.md) — hybrid port strategy, toolchain pin, package name, repo cutover plan.
+- [ADR-00M — CLI surface freeze](./ADR-00M-cli-surface-freeze.md) — authoritative inventory of every `c2n` subcommand + flag that the TS rewrite must preserve.
