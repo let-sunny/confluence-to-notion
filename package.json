@@ -25,6 +25,7 @@
     "eval:pipeline": "pnpm exec c2n eval output/ eval_results/ samples/"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@notionhq/client": "5.20.0",
     "@xmldom/xmldom": "^0.9.10",
     "commander": "^12.1.0",

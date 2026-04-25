@@ -1,0 +1,103 @@
+{
+  "tools": [
+    {
+      "name": "c2n_fetch_page",
+      "description": "Fetch a Confluence page by ID or URL and return its raw XHTML body plus metadata. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageIdOrUrl": {
+            "type": "string",
+            "description": "Confluence page ID or full page URL."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Optional Confluence base URL override; falls back to CONFLUENCE_BASE_URL."
+          }
+        },
+        "required": ["pageIdOrUrl"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_convert_page",
+      "description": "Convert a Confluence XHTML body into Notion blocks using the deterministic converter and the current ruleset. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "xhtml": {
+            "type": "string",
+            "description": "Confluence storage-format XHTML for a single page."
+          },
+          "pageId": {
+            "type": "string",
+            "description": "Optional source page ID; threaded into unresolved entries."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional source page title for diagnostic logging."
+          }
+        },
+        "required": ["xhtml"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_list_runs",
+      "description": "List migration runs recorded under output/runs/. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rootDir": {
+            "type": "string",
+            "description": "Optional alternate runs root; defaults to ./output/runs."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_get_run_report",
+      "description": "Read the report.json for a migration run by its slug. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Run slug (directory name under output/runs/)."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_migrate_page",
+      "description": "Migrate a single Confluence page to Notion (write). Disabled unless the server is started with allowWrite: true.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pageIdOrUrl": {
+            "type": "string",
+            "description": "Confluence page ID or URL to migrate."
+          },
+          "parentNotionPageId": {
+            "type": "string",
+            "description": "Notion parent page ID under which the new page is created."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "If true, perform conversion only and report intended writes without calling the Notion API."
+          }
+        },
+        "required": ["pageIdOrUrl", "parentNotionPageId"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ]
+}
