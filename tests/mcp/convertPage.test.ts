@@ -7,8 +7,8 @@ import { createServer } from "../../src/mcp/server.js";
 
 const EMPTY_RULESET: FinalRuleset = { source: "mcp-test", rules: [] };
 
-async function connectClient() {
-  const server = createServer();
+async function connectClient(options: { allowWrite?: boolean } = {}) {
+  const server = createServer(options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "convert-test-client", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -63,6 +63,36 @@ describe("c2n_convert_page tool handler", () => {
     try {
       await expect(
         client.callTool({ name: "c2n_fetch_page", arguments: { pageIdOrUrl: "1" } }),
+      ).rejects.toThrow(/not implemented/i);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("rejects write tools when allowWrite is not enabled", async () => {
+    const { client, server } = await connectClient();
+    try {
+      await expect(
+        client.callTool({
+          name: "c2n_migrate_page",
+          arguments: { pageIdOrUrl: "1", parentNotionPageId: "abc" },
+        }),
+      ).rejects.toThrow(/allowWrite/);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("falls through to not-implemented for write tools when allowWrite is enabled", async () => {
+    const { client, server } = await connectClient({ allowWrite: true });
+    try {
+      await expect(
+        client.callTool({
+          name: "c2n_migrate_page",
+          arguments: { pageIdOrUrl: "1", parentNotionPageId: "abc" },
+        }),
       ).rejects.toThrow(/not implemented/i);
     } finally {
       await client.close();

@@ -11,7 +11,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ErrorCode,
-  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -25,8 +25,8 @@ interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
-interface ResourceDefinition {
-  uri: string;
+interface ResourceTemplateDefinition {
+  uriTemplate: string;
   name: string;
   description: string;
   mimeType: string;
@@ -140,27 +140,27 @@ const TOOLS: ToolDefinition[] = [
   },
 ];
 
-const RESOURCES: ResourceDefinition[] = [
+const RESOURCE_TEMPLATES: ResourceTemplateDefinition[] = [
   {
-    uri: "c2n://runs/{slug}/source",
+    uriTemplate: "c2n://runs/{slug}/source",
     name: "Run source XHTML",
     description: "Raw Confluence XHTML captured for the run. {slug} is the run identifier.",
     mimeType: "application/xhtml+xml",
   },
   {
-    uri: "c2n://runs/{slug}/report",
+    uriTemplate: "c2n://runs/{slug}/report",
     name: "Run report",
     description: "Run report JSON summarising success/failure per page.",
     mimeType: "application/json",
   },
   {
-    uri: "c2n://runs/{slug}/converted/{pageId}",
+    uriTemplate: "c2n://runs/{slug}/converted/{pageId}",
     name: "Converted Notion blocks",
     description: "Notion blocks emitted by the converter for a single page in the run.",
     mimeType: "application/json",
   },
   {
-    uri: "c2n://runs/{slug}/resolution",
+    uriTemplate: "c2n://runs/{slug}/resolution",
     name: "Resolution store",
     description: "Aggregated unresolved-item resolutions for the run.",
     mimeType: "application/json",
@@ -190,8 +190,11 @@ const ConvertPageInputSchema = z.object({
 
 const EMPTY_RULESET: FinalRuleset = { source: "mcp", rules: [] };
 
+const WRITE_TOOLS = new Set(["c2n_migrate_page"]);
+
 export function createServer(options: CreateServerOptions = {}): Server {
   const ruleset = options.ruleset ?? EMPTY_RULESET;
+  const allowWrite = options.allowWrite === true;
   const server = new Server(
     { name: "c2n-mcp", version: "0.1.0" },
     {
@@ -203,10 +206,18 @@ export function createServer(options: CreateServerOptions = {}): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: RESOURCES }));
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+    resourceTemplates: RESOURCE_TEMPLATES,
+  }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    if (WRITE_TOOLS.has(name) && !allowWrite) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Tool ${name} requires the server to be started with allowWrite: true.`,
+      );
+    }
     if (name === "c2n_convert_page") {
       const parsed = ConvertPageInputSchema.parse(args ?? {});
       const result = convertXhtmlToConversionResult(ruleset, parsed.xhtml, parsed.pageId ?? "");
@@ -225,5 +236,5 @@ export function createServer(options: CreateServerOptions = {}): Server {
   return server;
 }
 
-export { TOOLS as toolDefinitions, RESOURCES as resourceDefinitions };
+export { TOOLS as toolDefinitions, RESOURCE_TEMPLATES as resourceTemplateDefinitions };
 export { McpError, ErrorCode };

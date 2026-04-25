@@ -2,7 +2,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { createServer } from "../../src/mcp/server.js";
-import resourcesListFixture from "../fixtures/mcp/resources-list.json" with { type: "json" };
+import resourceTemplatesListFixture from "../fixtures/mcp/resource-templates-list.json" with {
+  type: "json",
+};
 import toolsListFixture from "../fixtures/mcp/tools-list.json" with { type: "json" };
 
 async function connectClient() {
@@ -25,11 +27,13 @@ describe("MCP server parity", () => {
     }
   });
 
-  it("resources/list matches the frozen contract", async () => {
+  it("resources/templates/list matches the frozen contract", async () => {
     const { client, server } = await connectClient();
     try {
-      const response = await client.listResources();
-      expect({ resources: response.resources }).toEqual(resourcesListFixture);
+      const response = await client.listResourceTemplates();
+      expect({ resourceTemplates: response.resourceTemplates }).toEqual(
+        resourceTemplatesListFixture,
+      );
     } finally {
       await client.close();
       await server.close();
