@@ -7,6 +7,8 @@
 // their CallToolRequestSchema branches throw "not implemented" and are
 // carved out into the follow-up issues described in plan.json.
 
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -17,7 +19,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
+import type { ConfluenceAdapter } from "../confluence/client.js";
 import { convertXhtmlToConversionResult } from "../converter/convertPage.js";
+import { parseConfluenceUrl } from "../url.js";
 
 interface ToolDefinition {
   name: string;
@@ -180,6 +184,13 @@ export interface CreateServerOptions {
    * same fallback the CLI uses when no finalized ruleset is available.
    */
   ruleset?: FinalRuleset;
+  /**
+   * Builds a Confluence adapter for read-only tool handlers (c2n_fetch_page).
+   * Tests inject a fake adapter; the production stdio entry wires this from
+   * src/config.ts + src/cli/confluenceEnv.ts. When undefined, c2n_fetch_page
+   * throws InvalidRequest naming the missing env vars.
+   */
+  confluenceFactory?: (overrides?: { baseUrl?: string }) => ConfluenceAdapter;
 }
 
 const ConvertPageInputSchema = z.object({
@@ -188,6 +199,43 @@ const ConvertPageInputSchema = z.object({
   title: z.string().optional(),
 });
 
+const FetchPageInputSchema = z.object({
+  pageIdOrUrl: z.string().min(1),
+  baseUrl: z.string().optional(),
+});
+
+// Both run-read handlers accept an optional `rootDir` so tests can target a tmp
+// directory. The public tools/list schema only documents `slug` for
+// c2n_get_run_report (and `rootDir` on c2n_list_runs); the parity gate is
+// unaffected because the handler tolerates the extra field rather than
+// advertising it.
+const ListRunsInputSchema = z.object({
+  rootDir: z.string().optional(),
+});
+
+const GetRunReportInputSchema = z.object({
+  slug: z.string().min(1),
+  rootDir: z.string().optional(),
+});
+
+function resolveRunsRoot(rootDir: string | undefined): string {
+  return rootDir ?? join(process.cwd(), "output", "runs");
+}
+
+function resolvePageId(pageIdOrUrl: string): string {
+  if (/^\d+$/.test(pageIdOrUrl)) {
+    return pageIdOrUrl;
+  }
+  const parsed = parseConfluenceUrl(pageIdOrUrl);
+  if (parsed.kind === "page" || parsed.kind === "pageId") {
+    return parsed.pageId;
+  }
+  throw new McpError(
+    ErrorCode.InvalidParams,
+    `c2n_fetch_page requires a page ID or a /spaces/<KEY>/pages/<ID>/... URL; got a ${parsed.kind} link.`,
+  );
+}
+
 const EMPTY_RULESET: FinalRuleset = { source: "mcp", rules: [] };
 
 const WRITE_TOOLS = new Set(["c2n_migrate_page"]);
@@ -195,6 +243,7 @@ const WRITE_TOOLS = new Set(["c2n_migrate_page"]);
 export function createServer(options: CreateServerOptions = {}): Server {
   const ruleset = options.ruleset ?? EMPTY_RULESET;
   const allowWrite = options.allowWrite === true;
+  const confluenceFactory = options.confluenceFactory;
   const server = new Server(
     { name: "c2n-mcp", version: "0.1.0" },
     {
@@ -226,6 +275,74 @@ export function createServer(options: CreateServerOptions = {}): Server {
           {
             type: "text",
             text: JSON.stringify(result),
+          },
+        ],
+      };
+    }
+    if (name === "c2n_list_runs") {
+      const parsed = ListRunsInputSchema.parse(args ?? {});
+      const root = resolveRunsRoot(parsed.rootDir);
+      let entries: Array<{ name: string; isDirectory: () => boolean }>;
+      try {
+        entries = await readdir(root, { withFileTypes: true });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          return { content: [{ type: "text", text: JSON.stringify([]) }] };
+        }
+        throw err;
+      }
+      const slugs = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+      return { content: [{ type: "text", text: JSON.stringify(slugs) }] };
+    }
+    if (name === "c2n_get_run_report") {
+      const parsed = GetRunReportInputSchema.parse(args ?? {});
+      const root = resolveRunsRoot(parsed.rootDir);
+      const reportPath = join(root, parsed.slug, "report.md");
+      let body: string;
+      try {
+        body = await readFile(reportPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `No report.md found for run slug "${parsed.slug}" under ${root}.`,
+          );
+        }
+        throw err;
+      }
+      return { content: [{ type: "text", text: body }] };
+    }
+    if (name === "c2n_fetch_page") {
+      if (!confluenceFactory) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "c2n_fetch_page requires CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN to be set in the server environment.",
+        );
+      }
+      const parsed = FetchPageInputSchema.parse(args ?? {});
+      const pageId = resolvePageId(parsed.pageIdOrUrl);
+      const adapter = confluenceFactory(parsed.baseUrl ? { baseUrl: parsed.baseUrl } : undefined);
+      const page = await adapter.getPage(pageId);
+      const payload = {
+        pageId: page.id,
+        title: page.title,
+        spaceKey: page.space.key,
+        version: page.version.number,
+        body: {
+          storage: {
+            value: page.body.storage.value,
+            representation: page.body.storage.representation,
+          },
+        },
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(payload),
           },
         ],
       };

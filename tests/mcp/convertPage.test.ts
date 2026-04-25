@@ -58,18 +58,6 @@ describe("c2n_convert_page tool handler", () => {
     }
   });
 
-  it("rejects an unimplemented tool with an MCP error", async () => {
-    const { client, server } = await connectClient();
-    try {
-      await expect(
-        client.callTool({ name: "c2n_fetch_page", arguments: { pageIdOrUrl: "1" } }),
-      ).rejects.toThrow(/not implemented/i);
-    } finally {
-      await client.close();
-      await server.close();
-    }
-  });
-
   it("rejects write tools when allowWrite is not enabled", async () => {
     const { client, server } = await connectClient();
     try {
