@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "confluence-to-notion": {
+      "command": "npx",
+      "args": ["-y", "-p", "confluence-to-notion", "c2n-mcp"],
+      "env": {
+        "CONFLUENCE_BASE_URL": "https://your-org.atlassian.net/wiki",
+        "CONFLUENCE_EMAIL": "you@example.com",
+        "CONFLUENCE_API_TOKEN": "<atlassian-api-token>",
+        "NOTION_API_TOKEN": "ntn_...",
+        "NOTION_ROOT_PAGE_ID": "<notion-page-id>"
+      }
+    }
+  }
+}

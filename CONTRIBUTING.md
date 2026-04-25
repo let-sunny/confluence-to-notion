@@ -8,11 +8,6 @@ This document covers development setup, adding a new agent, the prompt-change
 policy, testing, PR rules, and code style. Deeper rules live in
 `.claude/rules/*.md`; each section links to the relevant file.
 
-> **Port status (April 2026).** The repo is mid-port from Python to
-> TypeScript (issue #129). PR 1/5 lands the scaffold; subcommands and the
-> converter follow in PRs 2–4 and `npm` publish in PR 5. Until then, `c2n`
-> answers only `--version` / `--help`.
-
 ---
 
 ## 1. Development environment setup
@@ -80,12 +75,10 @@ Agent files follow this order (see `.claude/rules/prompts.md`):
 
 Agent output schemas are code-first.
 
-1. Define a zod schema in `src/**/schemas.ts` (once PR 2 ships the schemas
-   module; until then the Python Pydantic schemas on the pre-#129 tag are the
-   reference).
+1. Define a zod schema in `src/**/schemas.ts`.
 2. The agent produces JSON compatible with that schema.
 3. The orchestration script validates the output via `c2n validate-output
-   <file> <schema>` (subcommand lands in PR 4).
+   <file> <schema>`.
 
 Because the schema is the contract, agent prompts must reference it and
 include examples.
@@ -229,8 +222,8 @@ pnpm typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
 - Data shapes via **zod** schemas (not hand-rolled interfaces) whenever the
   value crosses a serialisation boundary.
 - I/O is **async-first**; use native `fetch` / `undici`, not wrapper libraries.
-- Logging goes through a single module (to be added with the converter port);
-  no ad-hoc `console.log`. The CLI uses plain stderr writes for errors.
+- Logging goes through a single module; no ad-hoc `console.log`. The CLI
+  uses plain stderr writes for errors.
 - Import paths use the bundler resolver — no `.js` extension gymnastics beyond
   what `moduleResolution: "Bundler"` requires.
 
