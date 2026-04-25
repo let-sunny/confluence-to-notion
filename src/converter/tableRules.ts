@@ -7,13 +7,63 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import * as parse5 from "parse5";
-import type { DefaultTreeAdapterTypes } from "parse5";
+import { DOMParser } from "@xmldom/xmldom";
 import { type NotionPropertyType, type TableRuleSet, TableRuleSetSchema } from "./schemas.js";
 
-type Element = DefaultTreeAdapterTypes.Element;
-type ChildNode = DefaultTreeAdapterTypes.ChildNode;
-type ParentNode = DefaultTreeAdapterTypes.ParentNode;
+interface DomNode {
+  readonly nodeType: number;
+  readonly nodeName: string;
+  readonly nodeValue: string | null;
+  readonly childNodes: { length: number; item(i: number): DomNode | null };
+}
+interface Element extends DomNode {
+  readonly tagName: string;
+  readonly localName: string;
+}
+type ParentNode = DomNode;
+type ChildNode = DomNode;
+
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+const CDATA_SECTION_NODE = 4;
+
+const NAMESPACE_WRAPPER_OPEN =
+  '<root xmlns:ac="http://atlassian.com/content" xmlns:ri="http://atlassian.com/resource/identifier">';
+const NAMESPACE_WRAPPER_CLOSE = "</root>";
+
+const HTML_NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  ndash: "–",
+  mdash: "—",
+  hellip: "…",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  laquo: "«",
+  raquo: "»",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  middot: "·",
+  bull: "•",
+};
+
+function decodeNamedHtmlEntities(input: string): string {
+  const parts = input.split(/(<!\[CDATA\[[\s\S]*?\]\]>)/);
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (part === undefined || part.startsWith("<![CDATA[")) continue;
+    parts[i] = part.replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (match, name: string) => {
+      const ch = HTML_NAMED_ENTITIES[name];
+      return ch !== undefined ? ch : match;
+    });
+  }
+  return parts.join("");
+}
 
 const DATE_RE = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})$/;
 const SELECT_MAX_DISTINCT = 5;
@@ -27,15 +77,27 @@ export function normalizeHeaderSignature(headers: string[]): string {
 }
 
 function isElement(node: ChildNode | ParentNode): node is Element {
-  return "tagName" in node;
+  return node.nodeType === ELEMENT_NODE;
+}
+
+function* childNodesOf(node: ParentNode): Generator<ChildNode> {
+  const list = node.childNodes;
+  for (let i = 0; i < list.length; i += 1) {
+    const child = list.item(i);
+    if (child !== null) yield child;
+  }
 }
 
 function elementChildren(node: ParentNode): Element[] {
-  return node.childNodes.filter(isElement);
+  const out: Element[] = [];
+  for (const child of childNodesOf(node)) {
+    if (isElement(child)) out.push(child);
+  }
+  return out;
 }
 
 function* walkElements(node: ParentNode): Generator<Element> {
-  for (const child of node.childNodes) {
+  for (const child of childNodesOf(node)) {
     if (isElement(child)) {
       yield child;
       yield* walkElements(child);
@@ -45,11 +107,11 @@ function* walkElements(node: ParentNode): Generator<Element> {
 
 function textOf(node: ParentNode): string {
   let acc = "";
-  for (const child of node.childNodes) {
+  for (const child of childNodesOf(node)) {
     if (isElement(child)) {
       acc += textOf(child);
-    } else if (child.nodeName === "#text") {
-      acc += child.value;
+    } else if (child.nodeType === TEXT_NODE || child.nodeType === CDATA_SECTION_NODE) {
+      acc += child.nodeValue ?? "";
     }
   }
   return acc;
@@ -61,7 +123,12 @@ function collapseWhitespace(text: string): string {
 
 function parseFragmentSafe(xhtml: string): ParentNode | null {
   try {
-    return parse5.parseFragment(xhtml);
+    const wrapped =
+      NAMESPACE_WRAPPER_OPEN + decodeNamedHtmlEntities(xhtml) + NAMESPACE_WRAPPER_CLOSE;
+    const parser = new DOMParser({ onError: () => {} });
+    const doc = parser.parseFromString(wrapped, "text/xml");
+    const root = doc.documentElement as unknown as ParentNode | null;
+    return root;
   } catch {
     return null;
   }

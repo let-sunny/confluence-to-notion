@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@notionhq/client": "5.20.0",
+    "@xmldom/xmldom": "^0.9.10",
     "commander": "^12.1.0",
-    "parse5": "^7.2.1",
     "undici": "7.25.0",
     "zod": "^3.23.8"
   },
