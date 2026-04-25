@@ -4,38 +4,51 @@ All notable changes to this project are documented here. This project adheres
 to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and, once
 published, [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - 2026-04-26
 
-### Changed
-
-- **Port to TypeScript (in progress).** The Python runtime has been removed and
-  replaced with a Node 20 / TypeScript scaffold as the first of five PRs that
-  rewrite `confluence-to-notion`. See issue
-  [#129](https://github.com/let-sunny/confluence-to-notion/issues/129) for the
-  full series and
-  [`.claude/docs/ADR-00N-port-to-typescript.md`](./.claude/docs/ADR-00N-port-to-typescript.md)
-  for the port strategy.
+Initial public release. `confluence-to-notion` is now a Node 20 / TypeScript
+package on npm. This is the baseline of the rewrite tracked by
+[#129](https://github.com/let-sunny/confluence-to-notion/issues/129); it
+ships the full migration pipeline (fetch → convert → upload), the deterministic
+XHTML → Notion converter, the eval harness, and a read-only MCP server.
 
 ### Added
 
-- TypeScript toolchain: `tsup`, `vitest`, `biome`, `commander`, pinned
-  TypeScript 5 and Node 20 LTS via `.nvmrc`.
-- CI workflow (`.github/workflows/ci.yml`) running `pnpm lint` / `pnpm typecheck`
-  / `pnpm test` / `pnpm build` on Linux + macOS + Windows.
+- TypeScript runtime (Node 20 LTS, ESM, strict + `noUncheckedIndexedAccess`)
+  with `tsup` bundling to `dist/cli.js` + `dist/mcp.js`.
+- Frozen CLI surface per
+  [ADR-00M](./.claude/docs/ADR-00M-cli-surface-freeze.md): `fetch`,
+  `fetch-tree`, `notion-ping`, `validate-output`, `finalize`, `convert`,
+  `eval`, `migrate`, `migrate-tree`, `migrate-tree-pages`.
+- Deterministic XHTML → Notion converter with a golden-fixture parity gate
+  ([#163](https://github.com/let-sunny/confluence-to-notion/pull/163),
+  [#164](https://github.com/let-sunny/confluence-to-notion/pull/164)) and an
+  end-to-end `--url` integration covering converted artifacts
+  ([#168](https://github.com/let-sunny/confluence-to-notion/pull/168)).
+- Eval harness with schema validation, semantic coverage, baseline diff, and
+  LLM-as-judge parity
+  ([#151](https://github.com/let-sunny/confluence-to-notion/pull/151),
+  [#170](https://github.com/let-sunny/confluence-to-notion/pull/170)).
+- MCP server with a parity gate
+  ([#171](https://github.com/let-sunny/confluence-to-notion/pull/171)) and
+  read-only tool handlers `c2n_convert_page`, `c2n_fetch_page`,
+  `c2n_list_runs`, `c2n_get_run_report`
+  ([#173](https://github.com/let-sunny/confluence-to-notion/pull/173)).
+- CI workflow (`.github/workflows/ci.yml`) running `pnpm lint` /
+  `pnpm typecheck` / `pnpm test` / `pnpm build` on Linux, macOS, and Windows.
 - Release workflow (`.github/workflows/release.yml`) wired to
-  `changesets/action@v1` with `--provenance`. Inert until PR 5 initialises
-  changesets.
-- Frozen CLI surface inventory in
-  [`.claude/docs/ADR-00M-cli-surface-freeze.md`](./.claude/docs/ADR-00M-cli-surface-freeze.md)
-  that PR 4 will reimplement verbatim.
+  `changesets/action@v1` with `--provenance`
+  ([#149](https://github.com/let-sunny/confluence-to-notion/pull/149)).
 
 ### Removed
 
 - `src/confluence_to_notion/` Python package.
-- `pyproject.toml`, `uv.lock`, and `tests/` (Python/pytest).
+- `pyproject.toml`, `uv.lock`, and the legacy `tests/` (Python/pytest) suite.
 
-### Note
+### Notes
 
-This release is **not published**. Users cannot install or run the migration
-pipeline until PR 5 ships; the CLI currently answers only `--version` and
-`--help`.
+- First npm publish. `0.1.0` is the public TypeScript baseline; the package
+  follows [Semantic Versioning](https://semver.org/) from this release on.
+- MCP write tools (`c2n_migrate_page`) and resource content
+  (`c2n://runs/<slug>/...`) land in a follow-up issue carved out of
+  [#172](https://github.com/let-sunny/confluence-to-notion/issues/172).
