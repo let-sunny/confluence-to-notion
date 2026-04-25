@@ -1,3 +1,24 @@
+/**
+ * Historical-parity note (issue #153).
+ *
+ * Predecessor: the Python implementation at `src/confluence_to_notion/eval/llm_judge.py`
+ * (last seen at commit 15c53d3) scored *converted page pairs* on four Korean dimensions —
+ * `information_preservation`, `notion_idiom`, `structure`, `readability` — using a 1-5
+ * integer scale.
+ *
+ * This TypeScript port intentionally diverges from that prompt on four axes:
+ *
+ *   1. Language. Prompts and rationales are English-only per `CLAUDE.md` > Language
+ *      (the repo is a global-audience portfolio; every checked-in artifact is English).
+ *   2. Target. The judge now scores *discovery patterns*, not converted-page pairs.
+ *      After #86 the rule-id fixture matcher was deprecated; semantic-coverage and the
+ *      LLM judge are the remaining signal-only checks per ADR-004 / ADR-006.
+ *   3. Score scale. Dimensions are floats in 0..1 (not 1-5 ints) to match the
+ *      `EvalReport.llm_judge` consumer, which expects `z.record(z.number())` rows.
+ *   4. Transport. Calls the Anthropic Messages HTTP API directly via global `fetch`
+ *      instead of the `@anthropic-ai/sdk` package, to keep `dist/cli.js` under the 2MB
+ *      bundle budget enforced by `tests/integration/cli-distribution.test.ts`.
+ */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";

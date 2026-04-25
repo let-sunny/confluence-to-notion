@@ -27,6 +27,8 @@ If yes, fill in:
 
 > LLM-as-judge is off by default (API cost). Use `--llm-judge` when you want
 > it; use `--fail-on-regression` to make regressions hard-fail.
+> The live integration test `tests/integration/llmJudge.live.test.ts` is also
+> opt-in and only runs when `ANTHROPIC_API_KEY` is exported.
 
 ## Test plan
 

@@ -22,7 +22,7 @@ Derived rules are applied by a deterministic converter to migrate wiki pages whi
 - HTTP: undici / global `fetch` (lands in PR 3)
 - Notion SDK: `@notionhq/client` (lands in PR 3)
 - MCP SDK: `@modelcontextprotocol/sdk` (lands in PR 3)
-- Anthropic: `c2n eval --llm-judge` calls the Messages HTTP API directly (no `@anthropic-ai/sdk` in the CLI bundle; keeps `dist/cli.js` small).
+- Anthropic: `c2n eval --llm-judge` calls the Messages HTTP API directly (no `@anthropic-ai/sdk` in the CLI bundle; keeps `dist/cli.js` small). `tests/integration/llmJudge.live.test.ts` is skipped by default and runs only when `ANTHROPIC_API_KEY` is exported (intended for nightly/local use).
 - Bundler: tsup
 - Test runner: vitest (+ `@vitest/coverage-v8`)
 - Lint + format: biome
