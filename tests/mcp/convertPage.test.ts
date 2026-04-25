@@ -72,19 +72,4 @@ describe("c2n_convert_page tool handler", () => {
       await server.close();
     }
   });
-
-  it("falls through to not-implemented for write tools when allowWrite is enabled", async () => {
-    const { client, server } = await connectClient({ allowWrite: true });
-    try {
-      await expect(
-        client.callTool({
-          name: "c2n_migrate_page",
-          arguments: { pageIdOrUrl: "1", parentNotionPageId: "abc" },
-        }),
-      ).rejects.toThrow(/not implemented/i);
-    } finally {
-      await client.close();
-      await server.close();
-    }
-  });
 });

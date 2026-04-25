@@ -3,12 +3,11 @@
 // Registers the tools/list and resources/templates/list handlers that
 // constitute the "parity gate" for issue #133: the listings must match
 // tests/fixtures/mcp/{tools-list,resource-templates-list}.json byte-for-byte.
-// Read-only tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
-// c2n_get_run_report) are implemented in this file. The write handler
-// c2n_migrate_page is listed for parity but rejected with InvalidRequest
-// unless allowWrite is true; its implementation and the four
-// resource-content (ReadResourceRequestSchema) branches are carved out to
-// follow-up issue #174 (A2).
+// Tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
+// c2n_get_run_report, c2n_migrate_page) and the ReadResourceRequestSchema
+// handler for the four c2n://runs/{slug}/... templates are implemented in
+// this file. c2n_migrate_page is gated behind the allowWrite option; the
+// production stdio entry decides whether to enable it.
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,11 +18,14 @@ import {
   ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
 import type { ConfluenceAdapter } from "../confluence/client.js";
 import { convertXhtmlToConversionResult } from "../converter/convertPage.js";
+import type { NotionAdapter } from "../notion/client.js";
+import type { NotionBlock } from "../notion/schemas.js";
 import { parseConfluenceUrl } from "../url.js";
 
 interface ToolDefinition {
@@ -194,6 +196,20 @@ export interface CreateServerOptions {
    * throws InvalidRequest naming the missing env vars.
    */
   confluenceFactory?: (overrides?: { baseUrl?: string }) => ConfluenceAdapter;
+  /**
+   * Builds a Notion adapter for the c2n_migrate_page write handler. Tests
+   * inject a fake adapter; the production stdio entry wires this from
+   * NOTION_TOKEN. When undefined and allowWrite is true, c2n_migrate_page
+   * throws InvalidRequest naming the missing env var.
+   */
+  notionFactory?: () => NotionAdapter;
+  /**
+   * Root directory under which run artifacts (source.json, report.md,
+   * resolution.json, converted/<pageId>.json) live. Defaults to
+   * `<cwd>/output/runs`. Used by both the c2n_list_runs / c2n_get_run_report
+   * tool handlers and the ReadResourceRequestSchema handler.
+   */
+  runsRoot?: string;
 }
 
 const ConvertPageInputSchema = z.object({
@@ -205,6 +221,12 @@ const ConvertPageInputSchema = z.object({
 const FetchPageInputSchema = z.object({
   pageIdOrUrl: z.string().min(1),
   baseUrl: z.string().optional(),
+});
+
+const MigratePageInputSchema = z.object({
+  pageIdOrUrl: z.string().min(1),
+  parentNotionPageId: z.string().min(1),
+  dryRun: z.boolean().optional(),
 });
 
 // Both run-read handlers accept an optional `rootDir` so tests can target a tmp
@@ -221,8 +243,67 @@ const GetRunReportInputSchema = z.object({
   rootDir: z.string().optional(),
 });
 
-function resolveRunsRoot(rootDir: string | undefined): string {
-  return rootDir ?? join(process.cwd(), "output", "runs");
+function resolveRunsRoot(rootDir: string | undefined, fallback: string | undefined): string {
+  return rootDir ?? fallback ?? join(process.cwd(), "output", "runs");
+}
+
+const URL_PAGE_ID_SANITIZE_RE = /[^\w.-]+/g;
+const C2N_URI_PREFIX = "c2n://runs/";
+
+function sanitizePageId(pageId: string): string {
+  return pageId.replace(URL_PAGE_ID_SANITIZE_RE, "_");
+}
+
+interface ParsedResourceUri {
+  template: "source" | "report" | "resolution" | "converted";
+  slug: string;
+  pageId?: string;
+}
+
+function parseResourceUri(uri: string): ParsedResourceUri | null {
+  if (!uri.startsWith(C2N_URI_PREFIX)) {
+    return null;
+  }
+  const tail = uri.slice(C2N_URI_PREFIX.length);
+  const segments = tail.split("/").filter((s) => s.length > 0);
+  if (segments.length < 2) {
+    return null;
+  }
+  const slug = segments[0];
+  if (!slug) {
+    return null;
+  }
+  const second = segments[1];
+  if (segments.length === 2) {
+    if (second === "source" || second === "report" || second === "resolution") {
+      return { template: second, slug };
+    }
+    return null;
+  }
+  if (second === "converted" && segments.length >= 3) {
+    const pageId = segments.slice(2).join("/");
+    return { template: "converted", slug, pageId };
+  }
+  return null;
+}
+
+function templateMimeType(template: ParsedResourceUri["template"]): string {
+  for (const entry of RESOURCE_TEMPLATES) {
+    const placeholder =
+      template === "source"
+        ? "/source"
+        : template === "report"
+          ? "/report"
+          : template === "resolution"
+            ? "/resolution"
+            : "/converted/{pageId}";
+    if (entry.uriTemplate.endsWith(placeholder)) {
+      return entry.mimeType;
+    }
+  }
+  // Fallback — should be unreachable while RESOURCE_TEMPLATES stays in sync
+  // with the parser.
+  return "application/octet-stream";
 }
 
 function resolvePageId(pageIdOrUrl: string): string {
@@ -247,6 +328,8 @@ export function createServer(options: CreateServerOptions = {}): Server {
   const ruleset = options.ruleset ?? EMPTY_RULESET;
   const allowWrite = options.allowWrite === true;
   const confluenceFactory = options.confluenceFactory;
+  const notionFactory = options.notionFactory;
+  const runsRootOption = options.runsRoot;
   const server = new Server(
     { name: "c2n-mcp", version: "0.1.0" },
     {
@@ -261,6 +344,63 @@ export function createServer(options: CreateServerOptions = {}): Server {
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
     resourceTemplates: RESOURCE_TEMPLATES,
   }));
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    const parsed = parseResourceUri(uri);
+    if (parsed === null) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Unsupported resource URI: ${uri}. Supported templates: ${RESOURCE_TEMPLATES.map((t) => t.uriTemplate).join(", ")}.`,
+      );
+    }
+    const root = resolveRunsRoot(undefined, runsRootOption);
+    const runDir = join(root, parsed.slug);
+    let filePath: string;
+    let artifactLabel: string;
+    switch (parsed.template) {
+      case "source":
+        filePath = join(runDir, "source.json");
+        artifactLabel = "source.json";
+        break;
+      case "report":
+        filePath = join(runDir, "report.md");
+        artifactLabel = "report.md";
+        break;
+      case "resolution":
+        filePath = join(runDir, "resolution.json");
+        artifactLabel = "resolution.json";
+        break;
+      case "converted": {
+        const pageId = parsed.pageId ?? "";
+        const safe = sanitizePageId(pageId);
+        filePath = join(runDir, "converted", `${safe}.json`);
+        artifactLabel = `converted/${safe}.json`;
+        break;
+      }
+    }
+    let text: string;
+    try {
+      text = await readFile(filePath, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `No ${artifactLabel} found for run slug "${parsed.slug}" under ${root}.`,
+        );
+      }
+      throw err;
+    }
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: templateMimeType(parsed.template),
+          text,
+        },
+      ],
+    };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -284,7 +424,7 @@ export function createServer(options: CreateServerOptions = {}): Server {
     }
     if (name === "c2n_list_runs") {
       const parsed = ListRunsInputSchema.parse(args ?? {});
-      const root = resolveRunsRoot(parsed.rootDir);
+      const root = resolveRunsRoot(parsed.rootDir, runsRootOption);
       let entries: Array<{ name: string; isDirectory: () => boolean }>;
       try {
         entries = await readdir(root, { withFileTypes: true });
@@ -302,7 +442,7 @@ export function createServer(options: CreateServerOptions = {}): Server {
     }
     if (name === "c2n_get_run_report") {
       const parsed = GetRunReportInputSchema.parse(args ?? {});
-      const root = resolveRunsRoot(parsed.rootDir);
+      const root = resolveRunsRoot(parsed.rootDir, runsRootOption);
       const reportPath = join(root, parsed.slug, "report.md");
       let body: string;
       try {
@@ -346,6 +486,65 @@ export function createServer(options: CreateServerOptions = {}): Server {
           {
             type: "text",
             text: JSON.stringify(payload),
+          },
+        ],
+      };
+    }
+    if (name === "c2n_migrate_page") {
+      if (!confluenceFactory) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "c2n_migrate_page requires CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN to be set in the server environment.",
+        );
+      }
+      if (!notionFactory) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          "c2n_migrate_page requires NOTION_TOKEN to be set in the server environment.",
+        );
+      }
+      const parsed = MigratePageInputSchema.parse(args ?? {});
+      const pageId = resolvePageId(parsed.pageIdOrUrl);
+      const adapter = confluenceFactory();
+      const page = await adapter.getPage(pageId);
+      const conversion = convertXhtmlToConversionResult(ruleset, page.body.storage.value, page.id);
+      const blockCount = conversion.blocks.length;
+      const unresolvedCount = conversion.unresolved.length;
+      if (parsed.dryRun === true) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                dryRun: true,
+                sourcePageId: page.id,
+                title: page.title,
+                blockCount,
+                unresolvedCount,
+              }),
+            },
+          ],
+        };
+      }
+      const notion = notionFactory();
+      const blocks = conversion.blocks as unknown as NotionBlock[];
+      const notionRef = await notion.createPage({
+        parent: { id: parsed.parentNotionPageId },
+        title: page.title,
+        blocks: [],
+      });
+      await notion.appendBlocks(notionRef.id, blocks);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              notionPageId: notionRef.id,
+              sourcePageId: page.id,
+              title: page.title,
+              blockCount,
+              unresolvedCount,
+            }),
           },
         ],
       };
