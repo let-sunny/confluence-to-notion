@@ -1,0 +1,28 @@
+{
+  "resources": [
+    {
+      "uri": "c2n://runs/{slug}/source",
+      "name": "Run source XHTML",
+      "description": "Raw Confluence XHTML captured for the run. {slug} is the run identifier.",
+      "mimeType": "application/xhtml+xml"
+    },
+    {
+      "uri": "c2n://runs/{slug}/report",
+      "name": "Run report",
+      "description": "Run report JSON summarising success/failure per page.",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "c2n://runs/{slug}/converted/{pageId}",
+      "name": "Converted Notion blocks",
+      "description": "Notion blocks emitted by the converter for a single page in the run.",
+      "mimeType": "application/json"
+    },
+    {
+      "uri": "c2n://runs/{slug}/resolution",
+      "name": "Resolution store",
+      "description": "Aggregated unresolved-item resolutions for the run.",
+      "mimeType": "application/json"
+    }
+  ]
+}
