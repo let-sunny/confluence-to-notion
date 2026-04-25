@@ -1,0 +1,212 @@
+[
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "I am working on a proposal to satisfy the Restful Proxy project listed on the Projects page. ("
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "http://incubator.apache.org/kafka/projects.html",
+            "link": {
+              "url": "http://incubator.apache.org/kafka/projects.html"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": ")"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "My working knowledge of Kafka is about 3 hours old and I have actually written zero code yet, it is my job to do so for Box so I will update this as my knowledge increases. There may be some fundamental issues with this proposal at this time."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "General Idea"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Create a Restful API which will allow producers and consumers to communicate with a Kafka server via HTTP calls"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Consumers"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "URL Format:"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "GET /messages/<topic>/<consumer>/<offset> - Retrieve the messages for a consumer, from the topic, starting with an offset"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "DELETE /messages/<topic>/<consumer>/<offset> - ACK consumption of message for a consumer, topic, offset"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Producers"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "PUT /messages/<topic>"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Request Body will become the message"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Known Missing Items:"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "I know that this does not take into account partitions."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "It would be nice to be able to implement the async producer and have an HTTP callback happen from within the RESTServer (producer specifies a URL to be requested as callback)"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "If an HTTP call back wasn't available, have the service return a task ID (MD5 of the message or something), and then allow the client to query the server to see if the callback from Kafka has happened yet."
+          }
+        }
+      ]
+    }
+  }
+]

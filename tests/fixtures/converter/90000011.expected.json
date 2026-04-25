@@ -1,0 +1,15 @@
+[
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Range A – B is inclusive."
+          }
+        }
+      ]
+    }
+  }
+]

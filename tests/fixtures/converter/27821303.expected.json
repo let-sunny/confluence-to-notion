@@ -1,0 +1,1028 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Project Page"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Website",
+            "link": {
+              "url": "http://kafka.apache.org/"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Mailing Lists",
+            "link": {
+              "url": "http://kafka.apache.org/contact.html"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "General information:"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Connector Hub",
+            "link": {
+              "url": "http://connectors.confluent.io"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Clients support",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Clients"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka papers and presentations",
+            "link": {
+              "url": "https://notion.so/placeholder/Kafka papers and presentations"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka applications and usage",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Powered+By"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "JMX reporters",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/JMX+Reporters"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka ecosystem",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Ecosystem"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "System Tools",
+            "link": {
+              "url": "https://notion.so/placeholder/System Tools"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Design proposals (KIPs)",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Improvement+Proposals"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Performance Testing",
+            "link": {
+              "url": "https://notion.so/placeholder/Kafka Performance Testing"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.7 Release"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka compression",
+            "link": {
+              "url": "https://notion.so/placeholder/Compression"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Wire protocol",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Writing+a+Driver+for+Kafka"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka internals",
+            "link": {
+              "url": "https://notion.so/placeholder/Kafka Internals"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Operation",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Operations"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "MirrorMaker tool",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+mirroring+%28MirrorMaker%29"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.8 Release"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.8 changes and Quick start",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+0.8+Quick+Start"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Producer examples",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/0.8.0+Producer+Example"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "High level consumer examples",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Consumer+Group+Example"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "SimpleConsumer Examples",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/0.8.0+SimpleConsumer+Example"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Performance",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Performance+testing"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Replication design",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Replication"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Replication presentation at ApacheCon 2013",
+            "link": {
+              "url": "http://www.slideshare.net/junrao/kafka-replication-apachecon2013"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Wire protocol",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Zookeeper data structures",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+data+structures+in+Zookeeper"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Migrating from 0.7 to 0.8",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Migrating+from+0.7+to+0.8"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Replication tools",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Replication+tools"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "KafkaController internals",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Controller+Internals"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.8.1 Release"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Dynamic topic-level configuration",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Dynamic+Topic+Config"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Log compaction",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Log+Compaction"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.9 Release"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Consumer client redesign",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Consumer+Client+Re-Design"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "0.10 Release"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Streams",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Kafka+Streams"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Future stuff:"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Future release plan",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Future+release+plan"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Idempotent Producer",
+            "link": {
+              "url": "https://notion.so/placeholder/Idempotent Producer"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Quota design",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/KAFKA-656+-+Quota+Design"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Hierarchical topics",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Hierarchical+Topics"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Offset management",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Offset+Management"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Restful Api",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Restful+API+Proposal"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Audit trail proposal",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Audit+Trail+Proposal"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "System test improvements",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/System+Test+Improvements"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Incremental Cooperative Rebalancing: Support and Policies",
+            "link": {
+              "url": "https://notion.so/placeholder/Incremental Cooperative Rebalancing: Support and Policies"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Dynamically Adjust Log Levels in Connect",
+            "link": {
+              "url": "https://notion.so/placeholder/Dynamically Adjust Log Levels in Connect"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Changing Defaults in Connect 3.0.0",
+            "link": {
+              "url": "https://notion.so/placeholder/Changing Defaults in Connect 3.0.0"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Developers:"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Developer setup",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Developer+Setup"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Start Apache Kafka In Debug Mode (Eclipse Scala)",
+            "link": {
+              "url": "https://notion.so/placeholder/Start Apache Kafka In Debug Mode (Eclipse Scala)"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Contributing Code Changes",
+            "link": {
+              "url": "https://notion.so/placeholder/Contributing Code Changes"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Git workflow",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Patch+submission+and+review"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Component maintainer",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/Maintainers"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Tutorial - run Kafka system tests with ducktape",
+            "link": {
+              "url": "https://cwiki.apache.org/confluence/display/KAFKA/tutorial+-+set+up+and+run+Kafka+system+tests+with+ducktape"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Improvement Proposal",
+            "link": {
+              "url": "https://notion.so/placeholder/Kafka Improvement Proposals"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "s - Necessary when contributing changes to public APIs"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Kafka Client Jars Upgrade",
+            "link": {
+              "url": "https://notion.so/placeholder/Kafka Client Jars Upgrade"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Security"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Semi-Automated Bash Script to generate TLS Certs and Keys"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Committers/PMC Members:"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Release Process",
+            "link": {
+              "url": "https://notion.so/placeholder/Release Process"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Onboarding",
+            "link": {
+              "url": "https://notion.so/placeholder/Onboarding Committers and PMC Members"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Handling Jira and Confluence account requests",
+            "link": {
+              "url": "https://notion.so/placeholder/Handling Jira and Confluence account requests"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

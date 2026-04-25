@@ -1,0 +1,93 @@
+[
+  {
+    "heading_1": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Heading levels"
+          }
+        }
+      ]
+    },
+    "type": "heading_1"
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Two"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Three"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Four"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Five"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Six"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "End of headings."
+          }
+        }
+      ]
+    }
+  }
+]

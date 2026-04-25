@@ -1,0 +1,24 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Image attachment"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "image",
+    "image": {
+      "type": "external",
+      "external": {
+        "url": "https://placeholder.confluence/attachments/architecture.png"
+      }
+    }
+  }
+]

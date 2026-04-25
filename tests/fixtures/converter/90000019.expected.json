@@ -1,0 +1,36 @@
+[
+  {
+    "type": "callout",
+    "callout": {
+      "icon": {
+        "type": "emoji",
+        "emoji": "ℹ️"
+      },
+      "color": "blue_background",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Run the script before deploying:"
+          }
+        }
+      ],
+      "children": [
+        {
+          "type": "code",
+          "code": {
+            "language": "bash",
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "./scripts/preflight.sh"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,765 @@
+[
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Eclipse-Scala-Gradle-Git Developement Environment Setup",
+            "link": {
+              "url": "https://notion.so/placeholder/Eclipse-Scala-Gradle-Git Developement Environment Setup"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " - 01/17/2015 "
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "table_of_contents",
+    "table_of_contents": {
+      "color": "default"
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Eclipse setup"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Install and prepare Eclipse"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Download and install Eclipse (Indigo or Juno is recommended);"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Install Scala 2.10.x IDE plugin as described "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "here",
+            "link": {
+              "url": "http://scala-ide.org/download/current.html"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": ". Make sure to get the right bundle / update site according with your Eclipse version;"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Install IvyIDE plugin as described "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "here",
+            "link": {
+              "url": "http://ant.apache.org/ivy/ivyde/download.cgi"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": ". This will allow to automatically create classpath containers starting from ivy files;"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Checkout Kafka source"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "git clone "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "git@github.com:apache/kafka.git",
+            "link": {
+              "url": "https://github.com/apache/kafka"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "<kafka.project.dir>"
+          },
+          "annotations": {
+            "italic": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Generate Eclipse project files"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "cd "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "<kafka.project.dir>"
+          },
+          "annotations": {
+            "italic": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Bootstrap gradle wrapper with: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "gradle"
+          },
+          "annotations": {
+            "code": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Generate the eclipse projects with: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "./gradlew eclipse"
+          },
+          "annotations": {
+            "code": true
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": ". This command will create eclipse projects for every project defined in Kafka. "
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Note that the source folder structure may need to be fixed manually : see "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "KAFKA-4617",
+            "link": {
+              "url": "https://issues.apache.org/jira/browse/KAFKA-4617"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Create the Eclipse workspace"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Open Eclipse and create a new workspace;"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Import the generated project (File -> Import -> General -> Existing Projects into Workspace)"
+          }
+        }
+      ],
+      "children": [
+        {
+          "type": "numbered_list_item",
+          "numbered_list_item": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Navigate to the "
+                }
+              },
+              {
+                "type": "text",
+                "text": {
+                  "content": "<kafka.project.dir>"
+                },
+                "annotations": {
+                  "italic": true
+                }
+              },
+              {
+                "type": "text",
+                "text": {
+                  "content": ". Eclipse will find the projects generated by the previous command;"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "numbered_list_item",
+          "numbered_list_item": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Select the projects you want to import;"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "You should see the projects you have imported. For running unit tests and Kafka broker refer to the previous section."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "callout",
+    "callout": {
+      "icon": {
+        "type": "emoji",
+        "emoji": "ℹ️"
+      },
+      "color": "blue_background",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "You will need regenerate the projects and refresh eclipse every time there is a change in the projects dependencies. In other words, you need to run "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "./gradlew eclipse"
+          },
+          "annotations": {
+            "code": true
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " and refresh eclipse."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "NOTE - update for Eclipse 3.7.x Oxygen, scala-ide 4.7.1RC3 and Scala 2.12"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "After generating the projects with"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "code",
+    "code": {
+      "language": "plain text",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "gradle -PscalaVersion=2.12\n./gradlew -PscalaVersion=2.12 eclipse --refresh-dependencies"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "In Eclipse you need some manual tweaking to get rid of the build errors :"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "remove the duplicate java src path entry from  "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "core"
+          },
+          "annotations": {
+            "bold": true
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " "
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "remove all 'test' library entries in the projects : "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "core/streams/streams-scala"
+          },
+          "annotations": {
+            "bold": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "then, break the build cycle"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "remove the `test-utils` project dependency from "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "streams"
+          },
+          "annotations": {
+            "bold": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "add the test-utils source folders `test-utils/src/main/java` and `test-utils/src/test/java` to the streams project "
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Intellij Setup"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Install and prepare IntelliJ"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Download and install IntelliJ;"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Install the IntelliJ IDEA Scala Plugin (Menu Item File | Settings -> Plugins -> Browse Repositories -> Search for Scala);"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Checkout Kafka source"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "git clone "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "git@github.com:apache/kafka.git",
+            "link": {
+              "url": "https://github.com/apache/kafka"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "<kafka.project.dir>"
+          },
+          "annotations": {
+            "italic": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Update libraries and generate IntelliJ project files"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "cd "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "<kafka.project.dir>"
+          },
+          "annotations": {
+            "italic": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "gradle"
+          },
+          "annotations": {
+            "code": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "./gradlew idea"
+          },
+          "annotations": {
+            "code": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_3": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Create IntelliJ workspace"
+          }
+        }
+      ]
+    },
+    "type": "heading_3"
+  },
+  {
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Open Intellij and click open project pointing to "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "<kafka.project.dir>"
+          },
+          "annotations": {
+            "italic": true
+          }
+        }
+      ]
+    }
+  }
+]

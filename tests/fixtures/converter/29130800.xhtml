@@ -1,0 +1,52 @@
+<h1>Release Readiness Checklist</h1>
+
+<p>This page tracks release readiness across engineering areas. Current rollout state: <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">IN PROGRESS</ac:parameter><ac:parameter ac:name="colour">Yellow</ac:parameter></ac:structured-macro>.</p>
+
+<h2>Tracking Tickets</h2>
+
+<p>Primary release ticket: <ac:structured-macro ac:name="jira" ac:schema-version="1"><ac:parameter ac:name="server">System Jira</ac:parameter><ac:parameter ac:name="serverId">00000000-0000-0000-0000-000000000000</ac:parameter><ac:parameter ac:name="key">PROJ-1234</ac:parameter></ac:structured-macro></p>
+
+<p>Blocking issue: <ac:structured-macro ac:name="jira" ac:schema-version="1"><ac:parameter ac:name="server">System Jira</ac:parameter><ac:parameter ac:name="serverId">00000000-0000-0000-0000-000000000000</ac:parameter><ac:parameter ac:name="key">PROJ-5678</ac:parameter></ac:structured-macro> — QA sign-off: <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">BLOCKED</ac:parameter><ac:parameter ac:name="colour">Red</ac:parameter></ac:structured-macro></p>
+
+<h2>Architecture Diagram</h2>
+
+<p>Updated deployment topology for the new service mesh rollout:</p>
+
+<ac:structured-macro ac:name="drawio" ac:schema-version="1">
+  <ac:parameter ac:name="diagramName">release-topology</ac:parameter>
+  <ac:parameter ac:name="revision">4</ac:parameter>
+  <ac:parameter ac:name="width">800</ac:parameter>
+  <ac:parameter ac:name="height">600</ac:parameter>
+</ac:structured-macro>
+
+<h2>Deployment Runbook</h2>
+
+<ac:structured-macro ac:name="expand" ac:schema-version="1">
+  <ac:parameter ac:name="title">Click to view step-by-step deployment commands</ac:parameter>
+  <ac:rich-text-body>
+    <p>Run the following commands in order on the release host:</p>
+    <ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:parameter ac:name="title">deploy.sh</ac:parameter><ac:plain-text-body><![CDATA[#!/usr/bin/env bash
+set -euo pipefail
+kubectl apply -f manifests/
+kubectl rollout status deploy/api --timeout=5m
+./scripts/smoke-test.sh
+]]></ac:plain-text-body></ac:structured-macro>
+    <p>Verify the service is healthy: <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">HEALTHY</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+
+<h2>Java Migration Snippet</h2>
+
+<p>The new authentication adapter looks like this:</p>
+
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">java</ac:parameter><ac:parameter ac:name="title">AuthAdapter.java</ac:parameter><ac:parameter ac:name="linenumbers">true</ac:parameter><ac:plain-text-body><![CDATA[public final class AuthAdapter {
+    public Session authenticate(Request request) {
+        String token = request.header("Authorization");
+        return sessionStore.resolve(token);
+    }
+}
+]]></ac:plain-text-body></ac:structured-macro>
+
+<h2>Notes</h2>
+
+<p>Overall confidence in ship date: <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">ON TRACK</ac:parameter><ac:parameter ac:name="colour">Blue</ac:parameter></ac:structured-macro>. Previous owner handoff: <ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">ARCHIVED</ac:parameter><ac:parameter ac:name="colour">Grey</ac:parameter></ac:structured-macro>.</p>

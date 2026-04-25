@@ -1,0 +1,29 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Code macro with python"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "code",
+    "code": {
+      "language": "python",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "def add(a, b):\n    return a + b"
+          }
+        }
+      ]
+    }
+  }
+]

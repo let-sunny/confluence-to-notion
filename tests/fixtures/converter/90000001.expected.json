@@ -1,0 +1,29 @@
+[
+  {
+    "heading_1": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "CDATA inside code macro"
+          }
+        }
+      ]
+    },
+    "type": "heading_1"
+  },
+  {
+    "type": "code",
+    "code": {
+      "language": "javascript",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "const greet = (name) => `Hello, ${name}!`;\nconsole.log(greet(\"world\"));"
+          }
+        }
+      ]
+    }
+  }
+]

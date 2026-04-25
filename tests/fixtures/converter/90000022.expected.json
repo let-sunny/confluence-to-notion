@@ -1,0 +1,94 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Simple table"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "table",
+    "table": {
+      "table_width": 2,
+      "has_column_header": true,
+      "has_row_header": false,
+      "children": [
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "Region"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "Latency"
+                  }
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "us-east-1"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "40 ms"
+                  }
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "eu-west-1"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "120 ms"
+                  }
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

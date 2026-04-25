@@ -1,0 +1,94 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Nested table inside layout"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "table",
+    "table": {
+      "table_width": 2,
+      "has_column_header": true,
+      "has_row_header": false,
+      "children": [
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "Service"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "Owner"
+                  }
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "auth"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "infra"
+                  }
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "type": "table_row",
+          "table_row": {
+            "cells": [
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "billing"
+                  }
+                }
+              ],
+              [
+                {
+                  "type": "text",
+                  "text": {
+                    "content": "payments"
+                  }
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

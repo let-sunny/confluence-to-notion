@@ -1,0 +1,30 @@
+[
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Reach out to "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "link",
+            "link": {
+              "url": "#"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " for review."
+          }
+        }
+      ]
+    }
+  }
+]
