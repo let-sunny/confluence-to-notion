@@ -6,8 +6,8 @@
   "type": "module",
   "private": false,
   "bin": {
-    "c2n": "./dist/cli.js",
-    "c2n-mcp": "./dist/mcp.js"
+    "c2n": "dist/cli.js",
+    "c2n-mcp": "dist/mcp.js"
   },
   "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
   "engines": {
