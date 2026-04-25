@@ -24,10 +24,12 @@ npm i -g confluence-to-notion
 # exposes `c2n` and `c2n-mcp` binaries
 ```
 
-Or run without installing:
+Or run without installing — both bins resolve through the same package, so
+pin it with `-p`:
 
 ```bash
-npx confluence-to-notion c2n --help
+npx -p confluence-to-notion c2n --help
+npx -p confluence-to-notion c2n-mcp     # MCP server over stdio
 ```
 
 Requires Node 20 LTS or newer.
@@ -41,7 +43,7 @@ page:
 export CONFLUENCE_BASE_URL="https://your-org.atlassian.net/wiki"
 export CONFLUENCE_EMAIL="you@example.com"
 export CONFLUENCE_API_TOKEN="<atlassian-api-token>"
-export NOTION_API_TOKEN="ntn_..."
+export NOTION_TOKEN="ntn_..."
 export NOTION_ROOT_PAGE_ID="<notion-page-id>"
 
 c2n notion-ping                                 # verify the Notion token
@@ -63,7 +65,11 @@ overrides — lives in
 Public wikis (e.g. `cwiki.apache.org`) only need `CONFLUENCE_BASE_URL`.
 Private Atlassian Cloud wikis additionally need `CONFLUENCE_EMAIL` +
 `CONFLUENCE_API_TOKEN`. Any command that writes to Notion needs
-`NOTION_API_TOKEN` and `NOTION_ROOT_PAGE_ID`.
+`NOTION_TOKEN` and `NOTION_ROOT_PAGE_ID`.
+
+A ready-to-fork GitHub Actions workflow that runs `c2n migrate-tree-pages` on
+a schedule lives at
+[`examples/ci-github-actions.yml`](./examples/ci-github-actions.yml).
 
 ## Commands
 

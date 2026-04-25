@@ -5,7 +5,7 @@
 #
 #   1. Copy this file into the consumer repo at `.github/workflows/migrate.yml`.
 #   2. Add the referenced secrets under Settings → Secrets and variables →
-#      Actions: NOTION_API_TOKEN, NOTION_ROOT_PAGE_ID, CONFLUENCE_BASE_URL,
+#      Actions: NOTION_TOKEN, NOTION_ROOT_PAGE_ID, CONFLUENCE_BASE_URL,
 #      CONFLUENCE_EMAIL (private wikis), CONFLUENCE_API_TOKEN (private wikis).
 #   3. Trigger via the "Run workflow" button on the Actions tab.
 #
@@ -41,7 +41,7 @@ jobs:
 
       - name: Verify Notion token
         env:
-          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ROOT_PAGE_ID: ${{ secrets.NOTION_ROOT_PAGE_ID }}
         run: npx -y confluence-to-notion@latest c2n notion-ping
 
@@ -50,13 +50,17 @@ jobs:
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
           CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ROOT_PAGE_ID: ${{ secrets.NOTION_ROOT_PAGE_ID }}
+          ROOT_ID: ${{ inputs.confluence_root_page_id }}
+          SOURCE_URL: ${{ inputs.confluence_url }}
+          TARGET_PAGE_ID: ${{ inputs.notion_target_page_id }}
         run: |
-          npx -y confluence-to-notion@latest c2n migrate-tree-pages \
-            --root-id "${{ inputs.confluence_root_page_id }}" \
-            --url "${{ inputs.confluence_url }}" \
-            ${{ inputs.notion_target_page_id && format('--target {0}', inputs.notion_target_page_id) || '' }}
+          ARGS=(c2n migrate-tree-pages --root-id "$ROOT_ID" --url "$SOURCE_URL")
+          if [ -n "$TARGET_PAGE_ID" ]; then
+            ARGS+=(--target "$TARGET_PAGE_ID")
+          fi
+          npx -y confluence-to-notion@latest "${ARGS[@]}"
 
       - name: Upload run artifacts
         if: always()

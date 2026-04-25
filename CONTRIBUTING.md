@@ -39,7 +39,7 @@ Set these in `.env`. Public wikis only need `CONFLUENCE_BASE_URL`.
 | `CONFLUENCE_EMAIL` | private only | Atlassian account email. |
 | `CONFLUENCE_API_TOKEN` | private only | Atlassian API token. |
 | `CONFLUENCE_API_PATH` | optional | Self-hosted path override (default `/rest/api`). |
-| `NOTION_API_TOKEN` | ✓ (for Notion writes) | Notion integration token (`ntn_…` or `secret_…`). |
+| `NOTION_TOKEN` | ✓ (for Notion writes) | Notion integration token (`ntn_…` or `secret_…`). |
 | `NOTION_ROOT_PAGE_ID` | ✓ (for Notion writes) | Target Notion parent page id. |
 
 ### Verify
@@ -250,8 +250,8 @@ published-bundle layout. Tick every box on the release PR before merging.
       Notion workspace using a tiny Confluence sample (2–3 pages, at least one
       with a code block and one table) — manually verify the resulting Notion
       tree.
-- [ ] One `c2n_convert_page` round-trip via Claude Desktop using the
-      forthcoming `examples/mcp/claude-desktop.json` (slice (B) follow-up) —
+- [ ] One `c2n_convert_page` round-trip via Claude Desktop using
+      [`examples/mcp/claude-desktop.json`](./examples/mcp/claude-desktop.json) —
       confirm the MCP server starts, the tool is discoverable, and the
       converted blocks render in the chat.
 - [ ] `pnpm changeset publish --dry-run` reports

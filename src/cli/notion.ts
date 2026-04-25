@@ -2,8 +2,8 @@ import { Client } from "@notionhq/client";
 import type { Command } from "commander";
 
 function readNotionToken(): string | undefined {
-  const a = process.env.NOTION_API_TOKEN;
-  const b = process.env.NOTION_TOKEN;
+  const a = process.env.NOTION_TOKEN;
+  const b = process.env.NOTION_API_TOKEN;
   if (typeof a === "string" && a.length > 0) return a;
   if (typeof b === "string" && b.length > 0) return b;
   return undefined;
@@ -22,7 +22,7 @@ export function registerNotionCommands(program: Command): void {
       const token = readNotionToken();
       if (token === undefined) {
         process.stderr.write(
-          "Missing NOTION_API_TOKEN (or legacy NOTION_TOKEN). See CONTRIBUTING.md and ADR-00M.\n",
+          "Missing NOTION_TOKEN (legacy NOTION_API_TOKEN also accepted). See CONTRIBUTING.md and ADR-00M.\n",
         );
         process.exit(1);
       }

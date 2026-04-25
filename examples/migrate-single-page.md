@@ -22,7 +22,7 @@ fetching. You still need a Notion token to write.
 
 ```bash
 export CONFLUENCE_BASE_URL="https://cwiki.apache.org/confluence"
-export NOTION_API_TOKEN="ntn_..."
+export NOTION_TOKEN="ntn_..."
 export NOTION_ROOT_PAGE_ID="<notion-page-id>"
 ```
 
@@ -32,7 +32,7 @@ export NOTION_ROOT_PAGE_ID="<notion-page-id>"
 export CONFLUENCE_BASE_URL="https://your-org.atlassian.net/wiki"
 export CONFLUENCE_EMAIL="you@example.com"
 export CONFLUENCE_API_TOKEN="<atlassian-api-token>"
-export NOTION_API_TOKEN="ntn_..."
+export NOTION_TOKEN="ntn_..."
 export NOTION_ROOT_PAGE_ID="<notion-page-id>"
 ```
 
