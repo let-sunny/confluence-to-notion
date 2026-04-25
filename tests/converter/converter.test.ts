@@ -160,20 +160,15 @@ describe("convertXhtmlToNotionBlocks — CDATA preservation (issue #165)", () =>
 });
 
 describe("convertXhtmlToNotionBlocks — unknown macro fallback", () => {
-  it("emits a typed unsupportedMacro block for an unknown macro rather than dropping it silently", () => {
+  it("emits a Python-baseline paragraph '[<macro>] <text>' for an unknown macro rather than dropping it silently", () => {
     const xhtml =
       '<ac:structured-macro ac:name="totally-made-up"><ac:parameter ac:name="x">y</ac:parameter></ac:structured-macro>';
     const result = convert(xhtml);
     expect(result.blocks).toHaveLength(1);
-    const block = result.blocks[0] as {
-      type?: string;
-      unsupportedMacro?: { name?: string; xhtml?: string };
-    };
-    expect(block.type).toBe("unsupportedMacro");
-    expect(block.unsupportedMacro?.name).toBe("totally-made-up");
-    expect(typeof block.unsupportedMacro?.xhtml).toBe("string");
-    expect(block.unsupportedMacro?.xhtml?.length ?? 0).toBeGreaterThan(0);
-    // Matching unresolved entry is recorded so the resolver pass can pick it up.
+    expect(firstParagraphText(result.blocks as Array<Record<string, unknown>>)).toBe(
+      "[totally-made-up] y",
+    );
+    // Matching unresolved entry is still recorded so the resolver pass can replace the paragraph in-place.
     expect(
       result.unresolved.some(
         (item) => item.kind === "macro" && item.identifier === "totally-made-up",

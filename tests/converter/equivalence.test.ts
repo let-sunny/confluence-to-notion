@@ -94,20 +94,12 @@ function discoverFixtures(): { id: string; xhtmlPath: string; expectedPath: stri
 
 const fixtures = discoverFixtures();
 
-// Fixture `29130800` still diverges from the Python baseline because the TS
-// port emits a typed `unsupportedMacro` block for unknown macros (e.g. the
-// `drawio` macro in this fixture), while the Python converter falls through
-// to a paragraph with `[macro_name] text`. That's a deliberate TS-port
-// design choice (see the `unsupportedMacro` fallback in
-// `src/converter/converter.ts`) — not a parser issue. Tracking the broader
-// fallback alignment as a separate follow-up; re-enable `29130800` once the
-// fallback behaviour is reconciled.
-//
-// The other three fixtures previously pinned (27821303, 90000001, 90000007)
-// were CDATA-handling divergences caused by parse5 running in HTML5 mode;
-// after the parser swap to `@xmldom/xmldom` in `text/xml` mode (issue #165)
-// they match the Python baseline and have been unpinned.
-const KNOWN_FAILING_IDS = new Set(["29130800"]);
+// No pinned divergences from the Python baseline. The previously pinned
+// fixtures (27821303, 90000001, 90000007) were CDATA-handling cases that
+// were resolved by the parser swap to `@xmldom/xmldom` in `text/xml` mode
+// (issue #165); 29130800 was the last holdout (drawio fallback) and was
+// reconciled by aligning the unknown-macro fallback to the Python
+// "[<macro_name>] <text>" paragraph shape (issue #167).
 
 describe("converter equivalence vs Python baseline", () => {
   let suiteStart = 0;
@@ -130,15 +122,6 @@ describe("converter equivalence vs Python baseline", () => {
       ruleset: BASELINE_RULESET,
       pageId: id,
     });
-    if (KNOWN_FAILING_IDS.has(id)) {
-      // Pin known divergence as a *failed equality* — if the converter
-      // ever starts matching Python on this fixture, this assertion will
-      // flip and prompt removing the id from KNOWN_FAILING_IDS.
-      expect(() => expect(result.blocks).toMatchNotionBlocks(expected)).toThrow(
-        /Notion blocks did not match/,
-      );
-      return;
-    }
     expect(result.blocks).toMatchNotionBlocks(expected);
   });
 });

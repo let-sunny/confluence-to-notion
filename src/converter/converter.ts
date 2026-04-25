@@ -568,8 +568,10 @@ function convertMacro(el: Element, ctx: ConversionContext): NotionBlock[] {
   }
 
   // 5. Info / note / warning / tip panels. Gated specific rule first, then
-  // an always-on fallback so info-family macros never appear as
-  // unsupportedMacro — their mapping to callout is semantic, not rule-driven.
+  // an always-on fallback so info-family macros are always routed through
+  // convertPanelMacro instead of falling through to the generic
+  // "[<macro>] <text>" paragraph — their mapping to callout is semantic,
+  // not rule-driven.
   if (PANEL_STYLES[macroName] !== undefined) {
     if (ctx.enabledIds.has(`rule:macro:${macroName}`)) {
       markRuleUsed(ctx, `rule:macro:${macroName}`);
@@ -594,9 +596,12 @@ function convertMacro(el: Element, ctx: ConversionContext): NotionBlock[] {
     }
   }
 
-  // 8. Fallback: typed unsupportedMacro block + unresolved entry. The block
-  // carries the macro name and source xhtml so a later AI pass can replace
-  // it in-place rather than guessing from surrounding context.
+  // 8. Fallback: render as a Python-baseline paragraph "[<macro_name>] <text>"
+  // (or just "[<macro_name>]" when the macro element has no text). Matches
+  // the Python converter's behaviour for unknown macros so equivalence
+  // fixtures stay byte-exact (e.g. drawio in 29130800.expected.json). An
+  // unresolved entry is still recorded so the resolver pass can replace the
+  // paragraph in-place once a mapping is learned.
   const contextXhtml = serialize(el);
   ctx.unresolved.push({
     kind: "macro",
@@ -604,15 +609,9 @@ function convertMacro(el: Element, ctx: ConversionContext): NotionBlock[] {
     sourcePageId: ctx.pageId,
     contextXhtml,
   });
-  return [
-    {
-      type: "unsupportedMacro",
-      unsupportedMacro: {
-        name: macroName,
-        xhtml: contextXhtml,
-      },
-    },
-  ];
+  const text = allText(el).trim();
+  const content = text ? `[${macroName}] ${text}` : `[${macroName}]`;
+  return [paragraph([textSeg(content)])];
 }
 
 function extractIncludePageTitle(el: Element): string {
