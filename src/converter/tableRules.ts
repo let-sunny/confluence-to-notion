@@ -31,6 +31,11 @@ const NAMESPACE_WRAPPER_OPEN =
   '<root xmlns:ac="http://atlassian.com/content" xmlns:ri="http://atlassian.com/resource/identifier">';
 const NAMESPACE_WRAPPER_CLOSE = "</root>";
 
+// Mirror of converter.ts's HTML_NAMED_ENTITIES — kept in sync deliberately
+// (per ADR allowance to duplicate small helpers across these two files).
+// A divergent map would cause rule inference to see literal `&deg;` while
+// converter rendering decodes it to `°`, producing different column-type
+// guesses than the rendered output.
 const HTML_NAMED_ENTITIES: Record<string, string> = {
   nbsp: " ",
   ensp: " ",
@@ -48,8 +53,31 @@ const HTML_NAMED_ENTITIES: Record<string, string> = {
   rsquo: "’",
   ldquo: "“",
   rdquo: "”",
+  sbquo: "‚",
+  bdquo: "„",
   middot: "·",
   bull: "•",
+  deg: "°",
+  plusmn: "±",
+  times: "×",
+  divide: "÷",
+  cent: "¢",
+  pound: "£",
+  euro: "€",
+  yen: "¥",
+  sect: "§",
+  para: "¶",
+  larr: "←",
+  uarr: "↑",
+  rarr: "→",
+  darr: "↓",
+  harr: "↔",
+  hArr: "⇔",
+  rArr: "⇒",
+  lArr: "⇐",
+  iexcl: "¡",
+  iquest: "¿",
+  shy: "­",
 };
 
 function decodeNamedHtmlEntities(input: string): string {
@@ -125,9 +153,18 @@ function parseFragmentSafe(xhtml: string): ParentNode | null {
   try {
     const wrapped =
       NAMESPACE_WRAPPER_OPEN + decodeNamedHtmlEntities(xhtml) + NAMESPACE_WRAPPER_CLOSE;
-    const parser = new DOMParser({ onError: () => {} });
+    const parser = new DOMParser({
+      onError: (level: string, message: string) => {
+        if (level === "error" || level === "fatalError") {
+          console.warn(`tableRules: xhtml parse ${level}: ${message}`);
+        }
+      },
+    });
     const doc = parser.parseFromString(wrapped, "text/xml");
     const root = doc.documentElement as unknown as ParentNode | null;
+    if (root === null) {
+      console.warn("tableRules: parser returned no documentElement; skipping table");
+    }
     return root;
   } catch {
     return null;

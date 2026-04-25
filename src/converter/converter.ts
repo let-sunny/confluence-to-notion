@@ -248,24 +248,23 @@ const NAMESPACE_WRAPPER_CLOSE = "</root>";
 function parseXhtmlFragment(xhtml: string): ParentNode {
   const wrapped = NAMESPACE_WRAPPER_OPEN + decodeNamedHtmlEntities(xhtml) + NAMESPACE_WRAPPER_CLOSE;
   const parser = new DOMParser({
-    onError: () => {
-      /* swallow xmldom's noisy stderr for non-fatal issues */
+    onError: (level: string, message: string) => {
+      if (level === "error" || level === "fatalError") {
+        console.warn(`converter: xhtml parse ${level}: ${message}`);
+      }
     },
   });
   const doc = parser.parseFromString(wrapped, "text/xml");
   const documentElement = doc.documentElement as unknown as ParentNode | null;
   if (documentElement === null) {
+    console.warn("converter: parser returned no documentElement; producing zero blocks");
     return { childNodes: emptyChildNodes() } as unknown as ParentNode;
   }
   return documentElement;
 }
 
-const EMPTY_ITERATOR: Iterable<DomNode> = {
-  [Symbol.iterator]: () =>
-    ({ next: () => ({ done: true, value: undefined }) }) as Iterator<DomNode>,
-};
 function emptyChildNodes() {
-  return { length: 0, item: () => null, ...EMPTY_ITERATOR };
+  return { length: 0, item: () => null };
 }
 
 function isElement(node: ChildNode | ParentNode): node is Element {
@@ -329,10 +328,23 @@ function allText(node: ParentNode): string {
   return acc;
 }
 
+// Strip auto-injected wrapper namespaces. xmldom's XMLSerializer re-emits the
+// inherited xmlns:ac/xmlns:ri declarations from the synthetic <root> wrapper
+// onto the outermost serialized element; the original Confluence input never
+// declares these on inner elements, so removing them keeps contextXhtml
+// byte-equivalent with the Python ElementTree baseline.
+function stripWrapperNamespaces(serialized: string): string {
+  return serialized
+    .replace(/\s+xmlns:ac="http:\/\/atlassian\.com\/content"/g, "")
+    .replace(/\s+xmlns:ri="http:\/\/atlassian\.com\/resource\/identifier"/g, "");
+}
+
 function serialize(node: Element): string {
   try {
-    return new XMLSerializer().serializeToString(
-      node as unknown as Parameters<XMLSerializer["serializeToString"]>[0],
+    return stripWrapperNamespaces(
+      new XMLSerializer().serializeToString(
+        node as unknown as Parameters<XMLSerializer["serializeToString"]>[0],
+      ),
     );
   } catch {
     const attrs: string[] = [];
