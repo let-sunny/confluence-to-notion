@@ -30,7 +30,7 @@ describe("c2n convert --url (built dist/cli.js)", () => {
     const rulesPath = join(tmpDir, "rules.json");
     const outputDir = join(tmpDir, "output");
     await mkdir(inputDir, { recursive: true });
-    await mkdir(outputDir, { recursive: true });
+    // outputDir is not pre-created — startRun() creates the runs/ tree itself.
 
     const pageId = "111";
     await writeFile(join(inputDir, `${pageId}.xhtml`), "<p>hello convert-url</p>\n", "utf8");
@@ -47,6 +47,8 @@ describe("c2n convert --url (built dist/cli.js)", () => {
     // MSW is intentionally not wired here: convert only reads local XHTML and never
     // performs HTTP. See tests/integration/fetch-url-msw.test.ts for the HTTP path.
     const url = "https://cwiki.apache.org/confluence/display/FOO/Bar";
+    // execFileSync throws on non-zero exit, so a successful return is the
+    // implicit exit-code-0 assertion required by the issue.
     execFileSync(
       process.execPath,
       [cliJs, "convert", "--input", "input", "--rules", "rules.json", "--url", url],
