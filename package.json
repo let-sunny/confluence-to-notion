@@ -1,6 +1,6 @@
 {
   "name": "confluence-to-notion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Auto-discover Confluence → Notion transformation rules using a multi-agent pipeline",
   "license": "MIT",
   "type": "module",
