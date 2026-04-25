@@ -244,6 +244,31 @@ Reference: biome + `tsconfig.json` are authoritative until a
 
 ---
 
+## 7. Release cutover smoke checklist
+
+Before tagging a new release, the maintainer runs the following manual smoke
+checks. None of these are enforced by CI; they exist to catch regressions that
+unit tests cannot — real Notion writes, real Claude Desktop transport,
+published-bundle layout. Tick every box on the release PR before merging.
+
+- [ ] All golden-fixture converter tests are green:
+      `pnpm test tests/converter` (≥30 fixtures).
+- [ ] One real `c2n migrate-tree-pages` run end-to-end against a throwaway
+      Notion workspace using a tiny Confluence sample (2–3 pages, at least one
+      with a code block and one table) — manually verify the resulting Notion
+      tree.
+- [ ] One `c2n_convert_page` round-trip via Claude Desktop using the
+      forthcoming `examples/mcp/claude-desktop.json` (slice (B) follow-up) —
+      confirm the MCP server starts, the tool is discoverable, and the
+      converted blocks render in the chat.
+- [ ] `pnpm changeset publish --dry-run` reports
+      `confluence-to-notion@0.1.0` (or the version under release).
+- [ ] `npm publish --dry-run` package contents match the `files` manifest in
+      `package.json` (no stray `output/`, `eval_results/`, `samples/`, or
+      `tests/` artifacts).
+
+---
+
 ## Source of truth
 
 This document is an overview. Detailed rules live in:
