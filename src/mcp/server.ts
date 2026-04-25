@@ -306,7 +306,7 @@ function templateMimeType(template: ParsedResourceUri["template"]): string {
   return "application/octet-stream";
 }
 
-function resolvePageId(pageIdOrUrl: string): string {
+function resolvePageId(toolName: string, pageIdOrUrl: string): string {
   if (/^\d+$/.test(pageIdOrUrl)) {
     return pageIdOrUrl;
   }
@@ -316,7 +316,7 @@ function resolvePageId(pageIdOrUrl: string): string {
   }
   throw new McpError(
     ErrorCode.InvalidParams,
-    `c2n_fetch_page requires a page ID or a /spaces/<KEY>/pages/<ID>/... URL; got a ${parsed.kind} link.`,
+    `${toolName} requires a page ID or a /spaces/<KEY>/pages/<ID>/... URL; got a ${parsed.kind} link.`,
   );
 }
 
@@ -466,7 +466,7 @@ export function createServer(options: CreateServerOptions = {}): Server {
         );
       }
       const parsed = FetchPageInputSchema.parse(args ?? {});
-      const pageId = resolvePageId(parsed.pageIdOrUrl);
+      const pageId = resolvePageId("c2n_fetch_page", parsed.pageIdOrUrl);
       const adapter = confluenceFactory(parsed.baseUrl ? { baseUrl: parsed.baseUrl } : undefined);
       const page = await adapter.getPage(pageId);
       const payload = {
@@ -504,7 +504,7 @@ export function createServer(options: CreateServerOptions = {}): Server {
         );
       }
       const parsed = MigratePageInputSchema.parse(args ?? {});
-      const pageId = resolvePageId(parsed.pageIdOrUrl);
+      const pageId = resolvePageId("c2n_migrate_page", parsed.pageIdOrUrl);
       const adapter = confluenceFactory();
       const page = await adapter.getPage(pageId);
       const conversion = convertXhtmlToConversionResult(ruleset, page.body.storage.value, page.id);
