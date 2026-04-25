@@ -94,15 +94,20 @@ function discoverFixtures(): { id: string; xhtmlPath: string; expectedPath: stri
 
 const fixtures = discoverFixtures();
 
-// Fixtures where the TS port is known to diverge from the Python baseline.
-// All four are caused by parse5 running in HTML5 (not XML) mode: HTML5
-// treats `<![CDATA[ ... ]]>` as a bogus comment, so any text inside CDATA
-// is dropped or misread. The Python converter uses ElementTree XML mode
-// which decodes CDATA into a normal text node. Tracked alongside the
-// converter parse-mode follow-up — see `output/dev/preflight-drift.md` →
-// "Known TS port divergences". Re-enable each id by removing it from this
-// set once the underlying converter behaviour matches Python.
-const KNOWN_FAILING_IDS = new Set(["27821303", "29130800", "90000001", "90000007"]);
+// Fixture `29130800` still diverges from the Python baseline because the TS
+// port emits a typed `unsupportedMacro` block for unknown macros (e.g. the
+// `drawio` macro in this fixture), while the Python converter falls through
+// to a paragraph with `[macro_name] text`. That's a deliberate TS-port
+// design choice (see the `unsupportedMacro` fallback in
+// `src/converter/converter.ts`) — not a parser issue. Tracking the broader
+// fallback alignment as a separate follow-up; re-enable `29130800` once the
+// fallback behaviour is reconciled.
+//
+// The other three fixtures previously pinned (27821303, 90000001, 90000007)
+// were CDATA-handling divergences caused by parse5 running in HTML5 mode;
+// after the parser swap to `@xmldom/xmldom` in `text/xml` mode (issue #165)
+// they match the Python baseline and have been unpinned.
+const KNOWN_FAILING_IDS = new Set(["29130800"]);
 
 describe("converter equivalence vs Python baseline", () => {
   let suiteStart = 0;

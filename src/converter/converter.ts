@@ -5,16 +5,16 @@
 // Confluence XHTML and produces Notion API block dicts. No LLM calls — pure
 // transformation logic.
 //
-// Parser choice: parse5 in its standard (HTML5) mode preserves the `ac:` and
-// `ri:` prefixes inside tagName (e.g. `ac:structured-macro`) and decodes
-// named / numeric HTML entities automatically, so we get namespace-aware
-// behaviour without needing XML-mode parsing. The documented fallback, if we
-// ever hit a case where entity handling fights us, is linkedom's DOMParser in
-// XML mode — we deliberately avoid cheerio because it strips unknown
-// namespaces.
+// Parser choice: @xmldom/xmldom DOMParser in `text/xml` mode. The Python
+// baseline used ElementTree in XML mode, so the TS port matches that
+// behaviour: CDATA sections decode into normal text nodes, `ac:` / `ri:`
+// namespace prefixes are preserved on `tagName`, and the parser is strict
+// about well-formedness. parse5 (HTML5) was the previous choice but treated
+// `<![CDATA[ ... ]]>` as a bogus comment, dropping any text inside — see
+// issue #165. The synthetic root wrapper declares the `ac:` / `ri:`
+// namespaces so undeclared-prefix errors don't fire.
 
-import * as parse5 from "parse5";
-import type { DefaultTreeAdapterTypes } from "parse5";
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
 import type { TableRuleSet } from "./schemas.js";
 import {
@@ -24,10 +24,36 @@ import {
   type UnresolvedItem,
 } from "./schemas.js";
 
-type Element = DefaultTreeAdapterTypes.Element;
-type ChildNode = DefaultTreeAdapterTypes.ChildNode;
-type ParentNode = DefaultTreeAdapterTypes.ParentNode;
-type TextNode = DefaultTreeAdapterTypes.TextNode;
+// Minimal structural DOM aliases that match xmldom's runtime nodes. We avoid
+// importing xmldom's exported `Element` / `Node` types because they're class
+// types and constructing them in tests would require xmldom internals.
+interface Attr {
+  readonly name: string;
+  readonly localName: string | null;
+  readonly prefix: string | null;
+  readonly value: string;
+}
+interface DomNode {
+  readonly nodeType: number;
+  readonly nodeName: string;
+  readonly nodeValue: string | null;
+  readonly childNodes: { length: number; item(i: number): DomNode | null } & Iterable<DomNode>;
+  readonly firstChild: DomNode | null;
+  readonly parentNode: DomNode | null;
+}
+interface Element extends DomNode {
+  readonly tagName: string;
+  readonly localName: string;
+  readonly prefix: string | null;
+  readonly attributes: { length: number; item(i: number): Attr | null } & Iterable<Attr>;
+}
+interface TextNode extends DomNode {}
+type ChildNode = DomNode;
+type ParentNode = DomNode;
+
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+const CDATA_SECTION_NODE = 4;
 
 const LARGE_PAGE_BLOCK_THRESHOLD = 100;
 const LARGE_PAGE_SIZE_THRESHOLD = 102_400;
@@ -118,7 +144,7 @@ export function convertXhtmlToNotionBlocks(
     tableIndex: 0,
   };
 
-  const root = parse5.parseFragment(trimmed);
+  const root = parseXhtmlFragment(trimmed);
   const blocks = convertChildren(root, ctx);
 
   const sizeBytes = Buffer.byteLength(trimmed, "utf8");
@@ -152,34 +178,139 @@ function markRuleUsed(ctx: ConversionContext, ruleId: string): void {
 
 // --- DOM helpers ---
 
+// Common HTML named entities that aren't in XML's built-in set. xmldom's
+// strict XML parser treats unknown named entities as errors and leaves them
+// undecoded. parse5 used to decode these natively; we restore that behaviour
+// with a pre-pass that runs only outside CDATA sections.
+const HTML_NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  ndash: "–",
+  mdash: "—",
+  hellip: "…",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  laquo: "«",
+  raquo: "»",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  sbquo: "‚",
+  bdquo: "„",
+  middot: "·",
+  bull: "•",
+  deg: "°",
+  plusmn: "±",
+  times: "×",
+  divide: "÷",
+  cent: "¢",
+  pound: "£",
+  euro: "€",
+  yen: "¥",
+  sect: "§",
+  para: "¶",
+  larr: "←",
+  uarr: "↑",
+  rarr: "→",
+  darr: "↓",
+  harr: "↔",
+  hArr: "⇔",
+  rArr: "⇒",
+  lArr: "⇐",
+  iexcl: "¡",
+  iquest: "¿",
+  shy: "­",
+};
+
+function decodeNamedHtmlEntities(input: string): string {
+  // Split on CDATA boundaries; only decode in the non-CDATA segments so
+  // verbatim source code inside `<![CDATA[ ... ]]>` is left alone.
+  const parts = input.split(/(<!\[CDATA\[[\s\S]*?\]\]>)/);
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (part === undefined || part.startsWith("<![CDATA[")) continue;
+    parts[i] = part.replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (match, name: string) => {
+      const ch = HTML_NAMED_ENTITIES[name];
+      return ch !== undefined ? ch : match;
+    });
+  }
+  return parts.join("");
+}
+
+const NAMESPACE_WRAPPER_OPEN =
+  '<root xmlns:ac="http://atlassian.com/content" xmlns:ri="http://atlassian.com/resource/identifier">';
+const NAMESPACE_WRAPPER_CLOSE = "</root>";
+
+function parseXhtmlFragment(xhtml: string): ParentNode {
+  const wrapped = NAMESPACE_WRAPPER_OPEN + decodeNamedHtmlEntities(xhtml) + NAMESPACE_WRAPPER_CLOSE;
+  const parser = new DOMParser({
+    onError: (level: string, message: string) => {
+      if (level === "error" || level === "fatalError") {
+        console.warn(`converter: xhtml parse ${level}: ${message}`);
+      }
+    },
+  });
+  const doc = parser.parseFromString(wrapped, "text/xml");
+  const documentElement = doc.documentElement as unknown as ParentNode | null;
+  if (documentElement === null) {
+    console.warn("converter: parser returned no documentElement; producing zero blocks");
+    return { childNodes: emptyChildNodes() } as unknown as ParentNode;
+  }
+  return documentElement;
+}
+
+function emptyChildNodes() {
+  return { length: 0, item: () => null };
+}
+
 function isElement(node: ChildNode | ParentNode): node is Element {
-  return "tagName" in node;
+  return node.nodeType === ELEMENT_NODE;
 }
 
 function isText(node: ChildNode): node is TextNode {
-  return node.nodeName === "#text";
+  return node.nodeType === TEXT_NODE || node.nodeType === CDATA_SECTION_NODE;
+}
+
+function textValue(node: TextNode): string {
+  return node.nodeValue ?? "";
 }
 
 function localTag(el: Element): string {
-  const tag = el.tagName;
-  const colon = tag.indexOf(":");
-  return colon >= 0 ? tag.slice(colon + 1) : tag;
+  // xmldom keeps the `ac:` prefix in tagName; localName is the suffix.
+  return el.localName ?? el.tagName;
 }
 
 function getAttr(el: Element, name: string, prefix?: string): string {
-  for (const attr of el.attrs) {
+  const attrs = el.attributes;
+  for (let i = 0; i < attrs.length; i += 1) {
+    const attr = attrs.item(i);
+    if (!attr) continue;
     if (prefix !== undefined) {
-      if (attr.prefix === prefix && attr.name === name) return attr.value;
-    } else if (!attr.prefix && attr.name === name) {
-      return attr.value;
+      if (attr.prefix === prefix && attr.localName === name) return attr.value;
+    } else {
+      const attrPrefix = attr.prefix;
+      const attrLocal = attr.localName ?? attr.name;
+      if ((attrPrefix === null || attrPrefix === "") && attrLocal === name) return attr.value;
     }
   }
   return "";
 }
 
+function* childNodesOf(node: ParentNode): Generator<DomNode> {
+  const children = node.childNodes;
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children.item(i);
+    if (child !== null) yield child;
+  }
+}
+
 function elementChildren(node: ParentNode): Element[] {
   const out: Element[] = [];
-  for (const child of node.childNodes) {
+  for (const child of childNodesOf(node)) {
     if (isElement(child)) out.push(child);
   }
   return out;
@@ -187,31 +318,42 @@ function elementChildren(node: ParentNode): Element[] {
 
 function allText(node: ParentNode): string {
   let acc = "";
-  for (const child of node.childNodes) {
+  for (const child of childNodesOf(node)) {
     if (isElement(child)) {
       acc += allText(child);
     } else if (isText(child)) {
-      acc += child.value;
+      acc += textValue(child);
     }
   }
   return acc;
 }
 
+// Strip auto-injected wrapper namespaces. xmldom's XMLSerializer re-emits the
+// inherited xmlns:ac/xmlns:ri declarations from the synthetic <root> wrapper
+// onto the outermost serialized element; the original Confluence input never
+// declares these on inner elements, so removing them keeps contextXhtml
+// byte-equivalent with the Python ElementTree baseline.
+function stripWrapperNamespaces(serialized: string): string {
+  return serialized
+    .replace(/\s+xmlns:ac="http:\/\/atlassian\.com\/content"/g, "")
+    .replace(/\s+xmlns:ri="http:\/\/atlassian\.com\/resource\/identifier"/g, "");
+}
+
 function serialize(node: Element): string {
-  // parse5's tree adapter serializer is unexposed; wrap in a fragment for
-  // serializer compatibility. Falls back to a minimal reconstruction when
-  // serialization fails.
   try {
-    const fragment: DefaultTreeAdapterTypes.DocumentFragment = {
-      nodeName: "#document-fragment",
-      childNodes: [node],
-    } as unknown as DefaultTreeAdapterTypes.DocumentFragment;
-    return parse5.serialize(fragment);
+    return stripWrapperNamespaces(
+      new XMLSerializer().serializeToString(
+        node as unknown as Parameters<XMLSerializer["serializeToString"]>[0],
+      ),
+    );
   } catch {
-    const attrs = node.attrs
-      .map((a) => `${a.prefix ? `${a.prefix}:` : ""}${a.name}="${a.value}"`)
-      .join(" ");
-    return `<${node.tagName}${attrs ? ` ${attrs}` : ""} />`;
+    const attrs: string[] = [];
+    const list = node.attributes;
+    for (let i = 0; i < list.length; i += 1) {
+      const a = list.item(i);
+      if (a) attrs.push(`${a.name}="${a.value}"`);
+    }
+    return `<${node.tagName}${attrs.length > 0 ? ` ${attrs.join(" ")}` : ""} />`;
   }
 }
 
@@ -219,11 +361,11 @@ function serialize(node: Element): string {
 
 function convertChildren(parent: ParentNode, ctx: ConversionContext): NotionBlock[] {
   const blocks: NotionBlock[] = [];
-  for (const child of parent.childNodes) {
+  for (const child of childNodesOf(parent)) {
     if (isElement(child)) {
       blocks.push(...convertElement(child, ctx));
     } else if (isText(child)) {
-      const text = child.value;
+      const text = textValue(child);
       if (text.trim().length > 0) {
         blocks.push(paragraph([textSeg(text.trim())]));
       }
@@ -283,9 +425,10 @@ function convertElement(el: Element, ctx: ConversionContext): NotionBlock[] {
 
 function extractRichText(el: ParentNode, ctx: ConversionContext): RichTextSeg[] {
   const segments: RichTextSeg[] = [];
-  for (const child of el.childNodes) {
+  for (const child of childNodesOf(el)) {
     if (isText(child)) {
-      if (child.value.length > 0) segments.push(textSeg(child.value));
+      const value = textValue(child);
+      if (value.length > 0) segments.push(textSeg(value));
       continue;
     }
     if (!isElement(child)) continue;
@@ -371,9 +514,9 @@ function extractInlineMacro(el: Element, ctx: ConversionContext): RichTextSeg[] 
 // --- Block converters ---
 
 function tryPromoteBlockMacro(pEl: Element, ctx: ConversionContext): NotionBlock[] | null {
-  const firstChild = pEl.childNodes[0];
+  const firstChild = pEl.childNodes.item(0);
   const hasLeadingText =
-    firstChild !== undefined && isText(firstChild) && firstChild.value.trim().length > 0;
+    firstChild !== null && isText(firstChild) && textValue(firstChild).trim().length > 0;
   const children = elementChildren(pEl);
   if (hasLeadingText || children.length !== 1) return null;
 
@@ -382,12 +525,12 @@ function tryPromoteBlockMacro(pEl: Element, ctx: ConversionContext): NotionBlock
 
   // Reject if there's trailing text after the macro.
   let seenTarget = false;
-  for (const node of pEl.childNodes) {
+  for (const node of childNodesOf(pEl)) {
     if (!seenTarget) {
       if (node === only) seenTarget = true;
       continue;
     }
-    if (isText(node) && node.value.trim().length > 0) return null;
+    if (isText(node) && textValue(node).trim().length > 0) return null;
   }
 
   const macroName = getMacroName(only);
@@ -620,9 +763,9 @@ function convertAcImage(el: Element, ctx: ConversionContext): NotionBlock[] {
 
 function convertPre(el: Element): NotionBlock[] {
   const parts: string[] = [];
-  for (const child of el.childNodes) {
+  for (const child of childNodesOf(el)) {
     if (isText(child)) {
-      parts.push(child.value);
+      parts.push(textValue(child));
     } else if (isElement(child)) {
       if (localTag(child) === "br") {
         parts.push("\n");
@@ -767,9 +910,10 @@ function convertList(el: Element, listTag: "ul" | "ol", ctx: ConversionContext):
 
 function extractRichTextFromLi(li: Element, ctx: ConversionContext): RichTextSeg[] {
   const segments: RichTextSeg[] = [];
-  for (const child of li.childNodes) {
+  for (const child of childNodesOf(li)) {
     if (isText(child)) {
-      if (child.value.length > 0) segments.push(textSeg(child.value));
+      const value = textValue(child);
+      if (value.length > 0) segments.push(textSeg(value));
       continue;
     }
     if (!isElement(child)) continue;
