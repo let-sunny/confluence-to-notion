@@ -4,6 +4,22 @@ All notable changes to this project are documented here. This project adheres
 to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and, once
 published, [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-04-26
+
+First post-release patch. No user-visible behaviour changes; verifies the
+tag-driven trusted-publisher OIDC release workflow end-to-end.
+
+### Changed
+
+- Converter now matches the Python baseline for unknown macros, emitting a
+  `[<macro>] <text>` paragraph instead of a typed `unsupportedMacro` block
+  ([#184](https://github.com/let-sunny/confluence-to-notion/pull/184)).
+  `KNOWN_FAILING_IDS` in the equivalence test is empty — all 30+ converter
+  fixtures now match the baseline natively.
+- Integration tests build `dist/cli.js` exactly once per `vitest run` via a
+  shared `tests/globalSetup.ts`, replacing duplicated `beforeAll` blocks
+  ([#183](https://github.com/let-sunny/confluence-to-notion/pull/183)).
+
 ## [0.1.0] - 2026-04-26
 
 Initial public release. `confluence-to-notion` is now a Node 20 / TypeScript
