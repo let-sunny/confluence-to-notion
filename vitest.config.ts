@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    globalSetup: ["./tests/globalSetup.ts"],
     setupFiles: ["./tests/util/notionMatchers.ts"],
     coverage: {
       provider: "v8",
