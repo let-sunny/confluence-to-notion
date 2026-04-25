@@ -1,0 +1,21 @@
+[
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Looks good "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " ship it."
+          }
+        }
+      ]
+    }
+  }
+]

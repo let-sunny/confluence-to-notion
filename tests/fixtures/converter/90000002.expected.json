@@ -1,0 +1,33 @@
+[
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Info panel"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "callout",
+    "callout": {
+      "icon": {
+        "type": "emoji",
+        "emoji": "ℹ️"
+      },
+      "color": "blue_background",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "This is a tip you should not miss."
+          }
+        }
+      ]
+    }
+  }
+]

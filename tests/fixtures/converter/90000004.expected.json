@@ -1,0 +1,31 @@
+[
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "See the bug tracker for context."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "PROJ-1234",
+            "link": {
+              "url": "https://issues.apache.org/jira/browse/PROJ-1234"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

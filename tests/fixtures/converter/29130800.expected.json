@@ -1,0 +1,312 @@
+[
+  {
+    "heading_1": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Release Readiness Checklist"
+          }
+        }
+      ]
+    },
+    "type": "heading_1"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "This page tracks release readiness across engineering areas. Current rollout state: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "IN PROGRESSYellow"
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Tracking Tickets"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Primary release ticket: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "PROJ-1234",
+            "link": {
+              "url": "https://issues.apache.org/jira/browse/PROJ-1234"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Blocking issue: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "PROJ-5678",
+            "link": {
+              "url": "https://issues.apache.org/jira/browse/PROJ-5678"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": " — QA sign-off: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "BLOCKEDRed"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Architecture Diagram"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Updated deployment topology for the new service mesh rollout:"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "[drawio] release-topology\n  4\n  800\n  600"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Deployment Runbook"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "toggle",
+    "toggle": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Click to view step-by-step deployment commands"
+          }
+        }
+      ],
+      "children": [
+        {
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Run the following commands in order on the release host:"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "code",
+          "code": {
+            "language": "bash",
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "#!/usr/bin/env bash\nset -euo pipefail\nkubectl apply -f manifests/\nkubectl rollout status deploy/api --timeout=5m\n./scripts/smoke-test.sh"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Verify the service is healthy: "
+                }
+              },
+              {
+                "type": "text",
+                "text": {
+                  "content": "HEALTHYGreen"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Java Migration Snippet"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "The new authentication adapter looks like this:"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "code",
+    "code": {
+      "language": "java",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "public final class AuthAdapter {\n    public Session authenticate(Request request) {\n        String token = request.header(\"Authorization\");\n        return sessionStore.resolve(token);\n    }\n}"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "heading_2": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Notes"
+          }
+        }
+      ]
+    },
+    "type": "heading_2"
+  },
+  {
+    "type": "paragraph",
+    "paragraph": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Overall confidence in ship date: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "ON TRACKBlue"
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": ". Previous owner handoff: "
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "ARCHIVEDGrey"
+          }
+        },
+        {
+          "type": "text",
+          "text": {
+            "content": "."
+          }
+        }
+      ]
+    }
+  }
+]

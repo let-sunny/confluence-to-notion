@@ -1,0 +1,29 @@
+<p>I am working on a proposal to satisfy the Restful Proxy project listed on the Projects page. (<a href="http://incubator.apache.org/kafka/projects.html">http://incubator.apache.org/kafka/projects.html</a>)</p>
+
+<p>My working knowledge of Kafka is about 3 hours old and I have actually written zero code yet, it is my job to do so for Box so I will update this as my knowledge increases. There may be some fundamental issues with this proposal at this time.</p>
+
+<h2>General Idea</h2>
+
+<p>Create a Restful API which will allow producers and consumers to communicate with a Kafka server via HTTP calls</p>
+
+<h3>Consumers</h3>
+
+<p>URL Format:</p>
+
+<p>GET /messages/&lt;topic&gt;/&lt;consumer&gt;/&lt;offset&gt; - Retrieve the messages for a consumer, from the topic, starting with an offset</p>
+
+<p>DELETE /messages/&lt;topic&gt;/&lt;consumer&gt;/&lt;offset&gt; - ACK consumption of message for a consumer, topic, offset</p>
+
+<h3>Producers</h3>
+
+<p>PUT /messages/&lt;topic&gt;</p>
+
+<p>Request Body will become the message</p>
+
+<h3>Known Missing Items:</h3>
+
+<ul>
+	<li>I know that this does not take into account partitions.</li>
+	<li>It would be nice to be able to implement the async producer and have an HTTP callback happen from within the RESTServer (producer specifies a URL to be requested as callback)</li>
+	<li>If an HTTP call back wasn't available, have the service return a task ID (MD5 of the message or something), and then allow the client to query the server to see if the callback from Kafka has happened yet.</li>
+</ul>

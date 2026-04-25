@@ -1,0 +1,49 @@
+[
+  {
+    "type": "toggle",
+    "toggle": {
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {
+            "content": "Investigation notes"
+          }
+        }
+      ],
+      "children": [
+        {
+          "type": "callout",
+          "callout": {
+            "icon": {
+              "type": "emoji",
+              "emoji": "ℹ️"
+            },
+            "color": "blue_background",
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Reproduces only on staging."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "code",
+          "code": {
+            "language": "shell",
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "kubectl logs deploy/api"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]
