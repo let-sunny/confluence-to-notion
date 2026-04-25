@@ -126,6 +126,24 @@ describe("c2n_fetch_page tool handler", () => {
     }
   });
 
+  it("rejects display-style URLs with InvalidParams without calling the adapter", async () => {
+    const { client, server, state } = await connect();
+    try {
+      await expect(
+        client.callTool({
+          name: "c2n_fetch_page",
+          arguments: {
+            pageIdOrUrl: "https://example.atlassian.net/wiki/display/DOCS/Some+Title",
+          },
+        }),
+      ).rejects.toThrow(/display link/i);
+      expect(state.getPageCalls).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("throws InvalidRequest when no Confluence factory is wired", async () => {
     const { client, server } = await connect({ withFactory: false });
     try {

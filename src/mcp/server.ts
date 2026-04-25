@@ -1,11 +1,14 @@
 // MCP server contract for c2n.
 //
-// Registers the tools/list and resources/list handlers that constitute the
-// "parity gate" for issue #133: the listing must match
-// tests/fixtures/mcp/{tools-list,resources-list}.json byte-for-byte. The 4
-// resources beyond c2n_convert_page are listed as part of the contract but
-// their CallToolRequestSchema branches throw "not implemented" and are
-// carved out into the follow-up issues described in plan.json.
+// Registers the tools/list and resources/templates/list handlers that
+// constitute the "parity gate" for issue #133: the listings must match
+// tests/fixtures/mcp/{tools-list,resource-templates-list}.json byte-for-byte.
+// Read-only tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
+// c2n_get_run_report) are implemented in this file. The write handler
+// c2n_migrate_page is listed for parity but rejected with InvalidRequest
+// unless allowWrite is true; its implementation and the four
+// resource-content (ReadResourceRequestSchema) branches are carved out to
+// follow-up issue #174 (A2).
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
