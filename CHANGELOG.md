@@ -4,6 +4,19 @@ All notable changes to this project are documented here. This project adheres
 to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and, once
 published, [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-04-26
+
+### Fixed
+
+- `c2n` and `c2n-mcp` bins are no-ops when launched through the npm bin
+  symlink (`node_modules/.bin/<bin>`). The direct-invocation guard compared
+  `process.argv[1]` (symlink path) to `import.meta.url` (real path) without
+  resolving symlinks, so the guard was always false. Both entrypoints now
+  resolve `realpath` on each side before comparing. Affects every consumer
+  using `npm i -g`, `npx`, or any local install — 0.1.0 / 0.1.1 silently
+  exited 0 with no output. Adds a regression test that invokes the built
+  CLI through a symlink to catch this in the future.
+
 ## [0.1.1] - 2026-04-26
 
 First post-release patch. No user-visible behaviour changes; verifies the
