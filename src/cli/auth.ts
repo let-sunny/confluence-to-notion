@@ -1,4 +1,3 @@
-import * as readline from "node:readline/promises";
 import { type Command, Option } from "commander";
 import {
   type ConfigStoreOptions,
@@ -10,6 +9,7 @@ import {
   resolveProfileName,
   upsertProfile,
 } from "../configStore.js";
+import { promptField } from "./promptInput.js";
 
 export interface ConfluenceAuthOptions {
   profile?: string;
@@ -28,6 +28,7 @@ interface FieldSpec<K extends string> {
   flag: string;
   prompt: string;
   optionKey: K;
+  secret?: boolean;
 }
 
 const CONFLUENCE_FIELDS: FieldSpec<keyof ConfluenceAuthOptions>[] = [
@@ -45,6 +46,7 @@ const CONFLUENCE_FIELDS: FieldSpec<keyof ConfluenceAuthOptions>[] = [
     flag: "--confluence-api-token",
     prompt: "Confluence API token",
     optionKey: "confluenceApiToken",
+    secret: true,
   },
 ];
 
@@ -53,6 +55,7 @@ const NOTION_FIELDS: FieldSpec<keyof NotionAuthOptions>[] = [
     flag: "--notion-token",
     prompt: "Notion integration token",
     optionKey: "notionToken",
+    secret: true,
   },
   {
     flag: "--notion-root-page-id",
@@ -70,21 +73,21 @@ async function promptMissing<T extends Record<string, unknown>>(
   values: T,
   fields: FieldSpec<keyof T & string>[],
 ): Promise<T> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    for (const field of fields) {
-      const current = values[field.optionKey];
-      if (typeof current === "string" && current.length > 0) continue;
-      const answer = (await rl.question(`${field.prompt}: `)).trim();
-      if (answer.length === 0) {
+  for (const field of fields) {
+    const current = values[field.optionKey];
+    if (typeof current === "string" && current.length > 0) continue;
+    let answer: string;
+    try {
+      answer = await promptField({ prompt: field.prompt, secret: field.secret === true });
+    } catch (e) {
+      if (e instanceof Error && e.message === "Empty input") {
         throw new Error(`Empty input for ${field.flag}; aborting.`);
       }
-      (values as Record<string, unknown>)[field.optionKey] = answer;
+      throw e;
     }
-    return values;
-  } finally {
-    rl.close();
+    (values as Record<string, unknown>)[field.optionKey] = answer;
   }
+  return values;
 }
 
 async function resolveFields<T extends Record<string, unknown>>(

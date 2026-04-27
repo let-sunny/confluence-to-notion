@@ -31,6 +31,40 @@ function scriptReadline(answers: string[]): ScriptedReadline {
   return { question, close };
 }
 
+function driveSecretAnswers(answers: string[]): { setRawMode: ReturnType<typeof vi.fn> } {
+  const remaining = [...answers];
+  const setRawMode = vi.fn((mode: boolean) => {
+    if (mode === true) {
+      const next = remaining.shift();
+      if (next === undefined) return;
+      setImmediate(() => {
+        process.stdin.emit("data", Buffer.from(`${next}\r`));
+      });
+    }
+  });
+  return { setRawMode };
+}
+
+interface StdinSecretGuard {
+  restore: () => void;
+}
+
+function installSecretStdin(setRawMode: (mode: boolean) => unknown): StdinSecretGuard {
+  const isTty = process.stdin.isTTY;
+  const stdinAny = process.stdin as unknown as {
+    setRawMode: ((mode: boolean) => unknown) | undefined;
+  };
+  const prevSetRawMode = stdinAny.setRawMode;
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+  stdinAny.setRawMode = setRawMode;
+  return {
+    restore: () => {
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+      stdinAny.setRawMode = prevSetRawMode;
+    },
+  };
+}
+
 const ENV_KEYS = [
   "C2N_CONFIG_DIR",
   "C2N_PROFILE",
@@ -256,26 +290,28 @@ describe("c2n auth confluence", () => {
 
   it("TTY mode prompts for missing fields and updates only the confluence subtree", async () => {
     await seedDefaultProfile();
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
     const { question, close } = scriptReadline([
       "https://prompted.atlassian.net/wiki",
       "prompted@example.com",
-      "atl-token-prompted",
     ]);
-
-    const isTty = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    const driver = driveSecretAnswers(["atl-token-prompted"]);
+    const guard = installSecretStdin(driver.setRawMode);
 
     try {
       await createProgram().parseAsync(["node", "c2n", "auth", "confluence"]);
     } finally {
-      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+      guard.restore();
     }
 
-    expect(question).toHaveBeenCalledTimes(3);
+    // Only the two non-secret fields go through readline; the api token uses the secret path.
+    expect(question).toHaveBeenCalledTimes(2);
     expect(question.mock.calls[0]?.[0]).toBe("Confluence base URL: ");
     expect(question.mock.calls[1]?.[0]).toBe("Confluence account email: ");
-    expect(question.mock.calls[2]?.[0]).toBe("Confluence API token: ");
-    expect(close).toHaveBeenCalledTimes(1);
+    // promptField creates one readline per non-secret prompt and closes it on exit.
+    expect(close).toHaveBeenCalledTimes(2);
 
     const cfg = await readStoredConfig();
     expect(cfg.profiles.default?.confluence).toEqual({
@@ -288,6 +324,37 @@ describe("c2n auth confluence", () => {
       token: "secret_abc",
       rootPageId: "00000000000000000000000000000000",
     });
+  });
+
+  it("TTY mode does not echo the Confluence API token while non-secret fields go through readline", async () => {
+    await seedDefaultProfile();
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk as Buffer).toString());
+      return true;
+    }) as typeof process.stdout.write);
+
+    const { question } = scriptReadline([
+      "https://prompted.atlassian.net/wiki",
+      "prompted@example.com",
+    ]);
+    const driver = driveSecretAnswers(["atl-token-must-not-leak"]);
+    const guard = installSecretStdin(driver.setRawMode);
+
+    try {
+      await createProgram().parseAsync(["node", "c2n", "auth", "confluence"]);
+    } finally {
+      guard.restore();
+    }
+
+    // Non-secret fields are driven through the readline mock.
+    expect(question.mock.calls[0]?.[0]).toBe("Confluence base URL: ");
+    expect(question.mock.calls[1]?.[0]).toBe("Confluence account email: ");
+
+    const captured = writes.join("");
+    // The secret prompt label is written; the typed value never reaches stdout.
+    expect(captured).toContain("Confluence API token:");
+    expect(captured).not.toContain("atl-token-must-not-leak");
   });
 
   it("TTY mode rejects when a prompted answer is empty", async () => {
@@ -440,23 +507,22 @@ describe("c2n auth notion", () => {
 
   it("TTY mode prompts for missing fields and updates only the notion subtree", async () => {
     await seedDefaultProfile();
-    const { question, close } = scriptReadline([
-      "secret_prompted",
-      "55555555555555555555555555555555",
-    ]);
-
-    const isTty = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    const { question, close } = scriptReadline(["55555555555555555555555555555555"]);
+    const driver = driveSecretAnswers(["secret_prompted"]);
+    const guard = installSecretStdin(driver.setRawMode);
 
     try {
       await createProgram().parseAsync(["node", "c2n", "auth", "notion"]);
     } finally {
-      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+      guard.restore();
     }
 
-    expect(question).toHaveBeenCalledTimes(2);
-    expect(question.mock.calls[0]?.[0]).toBe("Notion integration token: ");
-    expect(question.mock.calls[1]?.[0]).toBe("Notion root page ID: ");
+    // Only the non-secret root-page-id goes through readline.
+    expect(question).toHaveBeenCalledTimes(1);
+    expect(question.mock.calls[0]?.[0]).toBe("Notion root page ID: ");
     expect(close).toHaveBeenCalledTimes(1);
 
     const cfg = await readStoredConfig();
@@ -470,6 +536,31 @@ describe("c2n auth notion", () => {
       email: "user@example.com",
       apiToken: "atl-token-1",
     });
+  });
+
+  it("TTY mode does not echo the Notion integration token while the root page id goes through readline", async () => {
+    await seedDefaultProfile();
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk as Buffer).toString());
+      return true;
+    }) as typeof process.stdout.write);
+
+    const { question } = scriptReadline(["55555555555555555555555555555555"]);
+    const driver = driveSecretAnswers(["secret_must_not_leak"]);
+    const guard = installSecretStdin(driver.setRawMode);
+
+    try {
+      await createProgram().parseAsync(["node", "c2n", "auth", "notion"]);
+    } finally {
+      guard.restore();
+    }
+
+    expect(question.mock.calls[0]?.[0]).toBe("Notion root page ID: ");
+
+    const captured = writes.join("");
+    expect(captured).toContain("Notion integration token:");
+    expect(captured).not.toContain("secret_must_not_leak");
   });
 
   it("TTY mode rejects when a prompted answer is empty", async () => {

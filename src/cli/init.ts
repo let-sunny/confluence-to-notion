@@ -1,6 +1,6 @@
-import * as readline from "node:readline/promises";
 import { type Command, Option } from "commander";
 import { type ConfigStoreOptions, getConfigPath, upsertProfile } from "../configStore.js";
+import { promptField } from "./promptInput.js";
 
 export interface InitCliOptions {
   profile: string;
@@ -15,6 +15,7 @@ interface FieldSpec {
   flag: string;
   prompt: string;
   optionKey: keyof InitCliOptions;
+  secret?: boolean;
 }
 
 const FIELDS: FieldSpec[] = [
@@ -32,11 +33,13 @@ const FIELDS: FieldSpec[] = [
     flag: "--confluence-api-token",
     prompt: "Confluence API token",
     optionKey: "confluenceApiToken",
+    secret: true,
   },
   {
     flag: "--notion-token",
     prompt: "Notion integration token",
     optionKey: "notionToken",
+    secret: true,
   },
   {
     flag: "--notion-root-page-id",
@@ -51,22 +54,21 @@ function resolveConfigDirOpts(): ConfigStoreOptions {
 }
 
 async function promptMissing(values: InitCliOptions): Promise<InitCliOptions> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    for (const field of FIELDS) {
-      const current = values[field.optionKey];
-      if (typeof current === "string" && current.length > 0) continue;
-      // No masking in v1 — accept plain echo.
-      const answer = (await rl.question(`${field.prompt}: `)).trim();
-      if (answer.length === 0) {
+  for (const field of FIELDS) {
+    const current = values[field.optionKey];
+    if (typeof current === "string" && current.length > 0) continue;
+    let answer: string;
+    try {
+      answer = await promptField({ prompt: field.prompt, secret: field.secret === true });
+    } catch (e) {
+      if (e instanceof Error && e.message === "Empty input") {
         throw new Error(`Empty input for ${field.flag}; aborting.`);
       }
-      (values as unknown as Record<string, string>)[field.optionKey] = answer;
+      throw e;
     }
-    return values;
-  } finally {
-    rl.close();
+    (values as unknown as Record<string, string>)[field.optionKey] = answer;
   }
+  return values;
 }
 
 export async function runInitCommand(opts: InitCliOptions): Promise<void> {
