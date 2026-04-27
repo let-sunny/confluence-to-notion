@@ -10,15 +10,28 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, "..", "..");
 const SCRIPT_PATH = join(REPO_ROOT, "scripts", "develop.sh");
 
-// Extract the apply_protected_patch function from scripts/develop.sh so we
-// can exercise it without running the whole orchestration. Sourcing the full
-// script would trigger argv parsing, branch creation, and preflight checks.
-function extractApplyProtectedPatch(): string {
-  const content = readFileSync(SCRIPT_PATH, "utf8");
-  const match = content.match(/^apply_protected_patch\(\) \{[\s\S]*?^\}/m);
-  if (!match) throw new Error("apply_protected_patch function not found in scripts/develop.sh");
+const APPLY_PROTECTED_PATCH_FN = "apply_protected_patch";
+
+/** Escape a literal for use inside a RegExp constructor. */
+function escapeRegExpLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Extract a top-level `name() { ... }` function body from a bash script (first
+ * match only). Used to unit-test helpers without sourcing the full orchestrator.
+ */
+function extractBashNamedFunction(script: string, functionName: string): string {
+  const re = new RegExp(`^${escapeRegExpLiteral(functionName)}\\(\\) \\{[\\s\\S]*?^\\}`, "m");
+  const match = script.match(re);
+  if (!match) {
+    throw new Error(`${functionName} function not found in scripts/develop.sh`);
+  }
   return match[0];
 }
+
+/** Combined stdout/stderr patterns for a loud `git apply` failure from the harness. */
+const GIT_APPLY_LOUD_FAILURE = /git apply failed|does not apply|patch failed/i;
 
 interface RunResult {
   status: number;
@@ -65,6 +78,9 @@ function initGitRepo(dir: string): void {
   execSync("git config user.email test@example.com", { cwd: dir });
   execSync("git config user.name test", { cwd: dir });
   execSync("git config commit.gpgsign false", { cwd: dir });
+  // On Windows, git's default core.autocrlf=true rewrites checked-out files
+  // to CRLF, breaking byte-for-byte assertions on file contents after `git apply`.
+  execSync("git config core.autocrlf false", { cwd: dir });
 }
 
 function commitFile(dir: string, relPath: string, content: string, message: string): void {
@@ -77,7 +93,10 @@ function commitFile(dir: string, relPath: string, content: string, message: stri
 
 describe("apply_protected_patch (scripts/develop.sh)", () => {
   let repoDir: string;
-  const fnCode = extractApplyProtectedPatch();
+  const fnCode = extractBashNamedFunction(
+    readFileSync(SCRIPT_PATH, "utf8"),
+    APPLY_PROTECTED_PATCH_FN,
+  );
 
   beforeEach(() => {
     repoDir = mkdtempSync(join(tmpdir(), "c2n-apply-protected-patch-"));
@@ -126,6 +145,8 @@ describe("apply_protected_patch (scripts/develop.sh)", () => {
     expect(readFileSync(join(repoDir, "target.md"), "utf8")).toBe("new line\n");
     expect(existsSync(join(repoDir, "output", "dev", "protected-paths.patch"))).toBe(false);
     expect(result.stdout).toMatch(/already applied/i);
+    expect(result.stdout).toContain("handoff artifact was:");
+    expect(result.stdout).toContain("protected-paths.patch");
   });
 
   it("(c) genuinely broken patch: fails loud and preserves the patch file", () => {
@@ -143,6 +164,6 @@ describe("apply_protected_patch (scripts/develop.sh)", () => {
     expect(result.status).not.toBe(0);
     expect(existsSync(join(repoDir, "output", "dev", "protected-paths.patch"))).toBe(true);
     const combined = result.stdout + result.stderr;
-    expect(combined).toMatch(/git apply failed|does not apply|patch failed/i);
+    expect(combined).toMatch(GIT_APPLY_LOUD_FAILURE);
   });
 });
