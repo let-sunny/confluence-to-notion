@@ -102,13 +102,22 @@ run_agent() {
 
 # --- Helper: apply protected-paths.patch emitted by an agent ---
 #
-# Subagents cannot write to most paths under `.claude/` — the write guard applies to
-# Edit/Write tools AND to Bash subprocesses in non-interactive (`-p`) sessions (local
-# smoke tests for #76 confirmed Bash is also blocked). The dev-implementer/dev-fixer
-# prompts instruct agents to emit a unified diff to $OUTPUT_DIR/protected-paths.patch
-# instead; this helper runs `git apply` from the script context (no guard here), then
-# deletes the patch so the next step starts clean. Fails loud — silent skip would let
-# the pipeline produce a PR that omits intended protected-path changes.
+# Subagents emit a unified diff to $OUTPUT_DIR/protected-paths.patch when they
+# need to edit `.claude/` paths that are write-protected from their session.
+# The orchestrator owns the apply step — agents are instructed not to run
+# `git apply` themselves.
+#
+# Idempotency: in practice an agent may still reason its way around the prompt
+# and self-apply the patch (issue #191 — implementer ran `git apply` in its own
+# session, then this helper failed re-applying the same diff). To survive that
+# slip, the helper now:
+#   1. `git apply --check` — if clean, apply (the normal path).
+#   2. Else `git apply --reverse --check` — if clean, the patch is already in
+#      the tree (likely self-applied by the agent). Log it, drop the patch
+#      file, return 0 so the pipeline continues.
+#   3. Else fail loud (preserve patch file, dump first 50 lines) — a genuinely
+#      broken patch must not be silently skipped, or the PR ends up missing
+#      intended protected-path changes.
 apply_protected_patch() {
     local step_num="$1"
     local source_label="$2"
@@ -128,11 +137,24 @@ apply_protected_patch() {
     fi
 
     echo "==> Applying protected-paths.patch (emitted by $source_label)"
-    if git apply --verbose "$patch_file"; then
-        echo "    [protected-patch] applied successfully"
+    if git apply --check "$patch_file" >/dev/null 2>&1; then
+        if git apply --verbose "$patch_file"; then
+            echo "    [protected-patch] applied successfully"
+            rm -f "$patch_file"
+            return 0
+        fi
+        echo "[ERROR] git apply failed on $patch_file (after --check passed)"
+        echo "    Patch preserved for manual inspection. First 50 lines:"
+        head -50 "$patch_file"
+        return 1
+    fi
+
+    if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+        echo "    [protected-patch] already applied (likely self-applied by agent) — skipping"
         rm -f "$patch_file"
         return 0
     fi
+
     echo "[ERROR] git apply failed on $patch_file"
     echo "    Patch preserved for manual inspection. First 50 lines:"
     head -50 "$patch_file"
