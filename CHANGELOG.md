@@ -4,6 +4,57 @@ All notable changes to this project are documented here. This project adheres
 to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and, once
 published, [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-04-28
+
+### Changed
+
+- **MCP architecture (ADR-007): the `c2n-mcp` server is now read-mostly.**
+  Notion writes move out of c2n and into whichever Notion MCP the host
+  runtime already runs. The previous `allowWrite` gate
+  (`C2N_MCP_ALLOW_WRITE=1`) is gone — it added friction without moving the
+  security boundary, since the Notion token in the profile store can write
+  through any other client.
+
+### Added
+
+- Four new MCP tools that expose ADR-005's "ask the human, persist as a
+  rule" loop directly on the wire:
+  - `c2n_list_unresolved` — surface ambiguities the converter could not
+    resolve.
+  - `c2n_propose_resolution` — append an answered proposal to
+    `output/proposals.json`.
+  - `c2n_finalize_proposals` — promote enabled proposals into
+    `output/rules.json`.
+  - `c2n_record_migration` — ingest the Notion page ID the host created;
+    persisted at `output/runs/<slug>/mapping.json` so re-runs can detect
+    duplicates.
+- `docs/migration-playbook.md` — vendor-neutral end-to-end runbook
+  covering setup, single-page flow, question/answer loop, re-run dedup,
+  tree migration, schemas, and failure modes.
+- `skills/c2n-migrate/` reference skill bundle (Claude Code skill format,
+  also accepted by OpenClaw's plugin runtime). Drives the playbook
+  autonomously when dropped into the host's skill directory.
+
+### Removed
+
+- `c2n_migrate_page` MCP tool. Hosts compose `c2n_convert_page` (returns
+  Notion-block payload) with their Notion MCP's `create_page` +
+  `append_blocks`. The CLI `c2n migrate` keeps the in-package Notion
+  adapter for batch / non-bot use cases.
+
+### Notes
+
+- Final MCP surface: 8 tools (4 read, 3 ask/answer, 1 ingest).
+- Breaking: hosts that called `c2n_migrate_page` get `MethodNotFound`.
+  Migration path is in [`docs/migration-playbook.md`](./docs/migration-playbook.md).
+- Architecture rationale in
+  [ADR-007](./.claude/docs/ADR.md#adr-007-mcp-surface--read-mostly-notion-writes-live-in-the-host).
+- Tracked across [#212](https://github.com/let-sunny/confluence-to-notion/issues/212),
+  [#214](https://github.com/let-sunny/confluence-to-notion/issues/214),
+  [#215](https://github.com/let-sunny/confluence-to-notion/issues/215),
+  [#216](https://github.com/let-sunny/confluence-to-notion/issues/216),
+  [#219](https://github.com/let-sunny/confluence-to-notion/issues/219).
+
 ## [0.1.3] - 2026-04-27
 
 ### Added
