@@ -7,6 +7,13 @@ migrations through a stable contract. The `tools/list` and
 `tests/fixtures/mcp/{tools-list,resource-templates-list}.json`; any change to
 the listings requires updating those fixtures in lockstep.
 
+Per [ADR-007](../../.claude/docs/ADR.md), the c2n MCP surface is
+**read-mostly**. Page creation runs through the host runtime's Notion MCP
+(`create_page` / `append_blocks`). c2n exposes four read-only tools, three
+ask/answer tools that thread questions back into the discover-pipeline
+ruleset, and a single ingest tool (`c2n_record_migration`) that logs the
+host-created Notion page ID against a c2n run.
+
 ## Tools
 
 All inputs are JSON objects (`additionalProperties: false`).
@@ -20,23 +27,29 @@ All inputs are JSON objects (`additionalProperties: false`).
 | `c2n_list_runs`       | _(none)_                             | JSON text: sorted array of run slugs                                                   | Optional `rootDir` overrides the default `<cwd>/output/runs`.                                      |
 | `c2n_get_run_report`  | `slug`                               | Plain text of `report.md`                                                              | Optional `rootDir` override; `ENOENT` surfaces as `InvalidParams` naming the slug.                 |
 
-### Ingest (write)
+### Ask / answer
 
-Per [ADR-007](../../.claude/docs/ADR.md), the previous `c2n_migrate_page`
-write tool is gone: host runtimes compose `c2n_convert_page` with their own
-Notion MCP (`create_page` / `append_blocks`) and then post the resulting
-Notion page ID back through `c2n_record_migration`, which is the only write
-path the c2n MCP server exposes.
+These tools turn unresolved-item questions surfaced by `c2n_convert_page`
+into durable rules without leaving the MCP surface. Hosts can list the
+pending questions, append a proposal, and materialize the ruleset — the same
+end state as running the `c2n finalize` CLI by hand.
+
+| Name                       | Required input                                                                                                                        | Returns                                              | Notes                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `c2n_list_unresolved`      | `slug`                                                                                                                                | JSON text: parsed `resolution.json` entries          | Optional `rootDir` override; missing run dir or missing `resolution.json` surfaces as `InvalidParams` naming the slug.                                |
+| `c2n_propose_resolution`   | `rule_id`, `source_pattern_id`, `source_description`, `notion_block_type`, `mapping_description`, `example_input`, `example_output`, `confidence` | JSON text: `{ ruleCount, ruleId }`                   | Appends to `output/proposals.json` (override with `proposalsPath`); creates the file when missing. Duplicate `rule_id` surfaces as `InvalidParams`. |
+| `c2n_finalize_proposals`   | _(none)_                                                                                                                              | JSON text: `{ ruleCount, rulesPath }`                | Defaults `proposalsPath` to `./output/proposals.json` and `rulesOutPath` to `./output/rules.json`. Delegates to the same logic as `c2n finalize`.    |
+
+### Ingest (write)
 
 | Name                    | Required input                                | Returns                                              | Notes                                                                                                                                            |
 | ----------------------- | --------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `c2n_record_migration`  | `confluencePageId`, `notionPageId`, `slug`    | JSON text: the persisted mapping                     | Optional `notionUrl` and `rootDir`. Persists `output/runs/<slug>/mapping.json`; an unknown slug surfaces as `InvalidParams` naming the slug.    |
 
-The ask/answer ingest tools `c2n_list_unresolved`, `c2n_propose_resolution`,
-and `c2n_finalize_proposals` land in a follow-up to issue
-[#214](https://github.com/let-sunny/confluence-to-notion/issues/214); until
-they ship, hosts that need to handle unresolved items keep going through the
-CLI.
+The intended composition is: `c2n_convert_page` → host Notion MCP
+`create_page` / `append_blocks` → `c2n_record_migration` to log the new
+Notion page ID against the c2n run. Approval / channel trust live in the
+host runtime — c2n no longer owns a Notion write path.
 
 ## Resources
 
@@ -92,4 +105,5 @@ context.
 | Unknown run slug or missing run artifact (`ENOENT`)        | `InvalidParams`       |
 | Unsupported resource URI scheme or unknown URI shape       | `InvalidParams`       |
 | Display-style Confluence URL passed to `c2n_fetch_page`    | `InvalidParams`       |
+| Duplicate `rule_id` for `c2n_propose_resolution`           | `InvalidParams`       |
 | Tool name not handled                                      | `MethodNotFound`      |
