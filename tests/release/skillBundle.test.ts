@@ -20,14 +20,18 @@ const REQUIRED_TOOL_NAMES = [
 ] as const;
 
 function parseFrontmatter(source: string): Record<string, string> {
-  if (!source.startsWith("---\n")) {
+  // Normalize CRLF → LF so the parser is line-ending-agnostic. Windows git
+  // checkouts default to CRLF for .md files, which would otherwise break
+  // both the leading-fence check and the split below.
+  const normalized = source.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
     throw new Error("SKILL.md must start with a YAML frontmatter block (---)");
   }
-  const end = source.indexOf("\n---", 4);
+  const end = normalized.indexOf("\n---", 4);
   if (end === -1) {
     throw new Error("SKILL.md frontmatter is not terminated by `---`");
   }
-  const block = source.slice(4, end);
+  const block = normalized.slice(4, end);
   const out: Record<string, string> = {};
   for (const rawLine of block.split("\n")) {
     const line = rawLine.trimEnd();
