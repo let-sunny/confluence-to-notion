@@ -38,6 +38,12 @@
 - **Why**: ADR-004 가 지적한 N:M 매핑·rule_id 비결정성 한계는 정답표 매칭 방식에 국한. 의미적 커버리지 + LLM-as-judge + baseline diff 조합은 개별 rule_id 에 묶이지 않고 변환 품질의 회귀를 잡을 수 있어 머지 게이트로 재사용 가능.
 - **Impact**: CLAUDE.md Development Process 문구가 '머지 게이트' 로 복귀(이 ADR 참조). `.github/pull_request_template.md` 에 discover-pipeline 프롬프트 변경 여부 체크박스 + `eval_results/<timestamp>.json` 첨부 가이드 섹션 추가. 스코프는 discover-pipeline 한정 — 그 외 PR 은 'N/A (discover-pipeline 무관)' 표기 허용. 회귀 감지는 `scripts/run-eval.sh --fail-on-regression` 로 엄격 모드 지정 가능.
 
+## ADR-007: MCP Surface — Read-Mostly, Notion Writes Live in the Host
+
+- **Decision**: The c2n MCP server owns Confluence understanding, block conversion, ambiguity surfacing, and rule accumulation only. Notion writes (`create_page` / `append_blocks`) move out of c2n and into whichever Notion MCP the host runtime already uses. Drop `c2n_migrate_page`; add four tools (`c2n_list_unresolved`, `c2n_propose_resolution`, `c2n_finalize_proposals`, `c2n_record_migration`). The CLI `c2n migrate` keeps the in-package Notion adapter for non-bot use cases (CI batches, ad-hoc scripts). Tree migration stays a CLI primitive (`c2n fetch-tree`); the MCP surface stays per-page.
+- **Why**: A single MCP server holding both reads and writes (1) made `allowWrite`-style gates pure friction without moving the security boundary (anyone with the stored Notion token writes through any other client — see #212), (2) duplicated responsibility with the Notion MCP the host already runs, and (3) tied c2n to Notion-API churn it does not need to own. Splitting lets c2n stay focused on "Confluence domain knowledge + rule engine" and the host stay focused on orchestration + I/O. The four new tools also finally expose ADR-005's "ask the human, persist as a rule" loop on the MCP surface itself, instead of leaving it as a CLI-only flow.
+- **Impact**: MCP surface settles at 8 tools (4 read, 3 ask/answer, 1 ingest). Breaking: hosts that called `c2n_migrate_page` get `MethodNotFound` and must compose `c2n_convert_page` with their Notion MCP. `c2n_record_migration` ingests the Notion page ID the host created and persists it under `output/runs/<slug>/mapping.json`, enabling re-run dedup. Tracked across three issues: #214 (MCP refactor), #215 (vendor-neutral playbook `docs/migration-playbook.md`), #216 (reference skill bundle `skills/c2n-migrate/`). Bump stays patch per the 0.x policy.
+
 ## Standalone ADRs
 
 Decisions large enough to need their own file live alongside this index:
