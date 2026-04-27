@@ -76,25 +76,33 @@
       }
     },
     {
-      "name": "c2n_migrate_page",
-      "description": "Migrate a single Confluence page to Notion (write). Pass dryRun: true to run the conversion without calling the Notion API.",
+      "name": "c2n_record_migration",
+      "description": "Record a Notion page ID created by the host runtime against a Confluence page in this c2n run; persists to output/runs/<slug>/mapping.json. Write.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "pageIdOrUrl": {
+          "confluencePageId": {
             "type": "string",
-            "description": "Confluence page ID or URL to migrate."
+            "description": "Source Confluence page ID being recorded."
           },
-          "parentNotionPageId": {
+          "notionPageId": {
             "type": "string",
-            "description": "Notion parent page ID under which the new page is created."
+            "description": "Notion page ID created by the host runtime."
           },
-          "dryRun": {
-            "type": "boolean",
-            "description": "If true, perform conversion only and report intended writes without calling the Notion API."
+          "slug": {
+            "type": "string",
+            "description": "Run slug (directory name under output/runs/) the mapping belongs to."
+          },
+          "notionUrl": {
+            "type": "string",
+            "description": "Optional Notion page URL for downstream reporting."
+          },
+          "rootDir": {
+            "type": "string",
+            "description": "Optional alternate runs root; defaults to ./output/runs."
           }
         },
-        "required": ["pageIdOrUrl", "parentNotionPageId"],
+        "required": ["confluencePageId", "notionPageId", "slug"],
         "additionalProperties": false,
         "$schema": "http://json-schema.org/draft-07/schema#"
       }

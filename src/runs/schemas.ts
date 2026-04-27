@@ -40,6 +40,14 @@ export type SourceInfo = z.infer<typeof SourceInfoSchema>;
 export const RunResolutionSchema = z.record(z.string(), z.string());
 export type RunResolution = z.infer<typeof RunResolutionSchema>;
 
+export const MappingSchema = z.object({
+  confluencePageId: z.string().min(1),
+  notionPageId: z.string().min(1),
+  notionUrl: z.string().optional(),
+  recordedAt: z.coerce.date().default(() => new Date()),
+});
+export type Mapping = z.infer<typeof MappingSchema>;
+
 export function defaultRunStatus(): RunStatus {
   const pending = (): StepRecord => ({
     status: "pending",

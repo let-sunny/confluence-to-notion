@@ -9,7 +9,6 @@ import {
   ConfigStoreError,
   type ConfigStoreOptions,
   getConfluenceCreds,
-  getNotionCreds,
   resolveProfileName,
 } from "../configStore.js";
 import {
@@ -17,7 +16,6 @@ import {
   type FetchLike,
   createConfluenceClient,
 } from "../confluence/client.js";
-import { type NotionAdapter, createNotionClient } from "../notion/client.js";
 import { type CreateServerOptions, createServer } from "./server.js";
 
 function realpathOrSelf(p: string): string {
@@ -69,23 +67,10 @@ function buildConfluenceFactory(
   };
 }
 
-function buildNotionFactory(profile: string): () => NotionAdapter {
-  return () => {
-    let creds: ReturnType<typeof getNotionCreds>;
-    try {
-      creds = getNotionCreds(profile, resolveConfigDirOpts());
-    } catch (e) {
-      throw asInvalidRequest(e);
-    }
-    return createNotionClient({ token: creds.token });
-  };
-}
-
 export function buildServerOptions(): CreateServerOptions {
   const profile = resolveProfileName(undefined, resolveConfigDirOpts());
   return {
     confluenceFactory: buildConfluenceFactory(profile),
-    notionFactory: buildNotionFactory(profile),
   };
 }
 

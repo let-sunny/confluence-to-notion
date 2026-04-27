@@ -3,13 +3,14 @@
 // Registers the tools/list and resources/templates/list handlers that
 // constitute the "parity gate" for issue #133: the listings must match
 // tests/fixtures/mcp/{tools-list,resource-templates-list}.json byte-for-byte.
-// Tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
-// c2n_get_run_report, c2n_migrate_page) and the ReadResourceRequestSchema
-// handler for the four c2n://runs/{slug}/... templates are implemented in
-// this file. c2n_migrate_page calls always require Confluence and Notion
-// credentials to resolve; per-call `dryRun: true` skips the Notion write.
+// Read-only tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
+// c2n_get_run_report) plus the c2n_record_migration ingest handler and the
+// ReadResourceRequestSchema handler for the four c2n://runs/{slug}/...
+// templates are implemented in this file. Per ADR-007, the MCP surface is
+// read-mostly: page creation runs through the host's Notion MCP, and hosts
+// post the resulting Notion page ID back via c2n_record_migration.
 
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
@@ -24,8 +25,7 @@ import { z } from "zod";
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
 import type { ConfluenceAdapter } from "../confluence/client.js";
 import { convertXhtmlToConversionResult } from "../converter/convertPage.js";
-import type { NotionAdapter } from "../notion/client.js";
-import type { NotionBlock } from "../notion/schemas.js";
+import { MappingSchema } from "../runs/index.js";
 import { parseConfluenceUrl } from "../url.js";
 
 interface ToolDefinition {
@@ -122,27 +122,34 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "c2n_migrate_page",
+    name: "c2n_record_migration",
     description:
-      "Migrate a single Confluence page to Notion (write). Pass dryRun: true to run the conversion without calling the Notion API.",
+      "Record a Notion page ID created by the host runtime against a Confluence page in this c2n run; persists to output/runs/<slug>/mapping.json. Write.",
     inputSchema: {
       type: "object",
       properties: {
-        pageIdOrUrl: {
+        confluencePageId: {
           type: "string",
-          description: "Confluence page ID or URL to migrate.",
+          description: "Source Confluence page ID being recorded.",
         },
-        parentNotionPageId: {
+        notionPageId: {
           type: "string",
-          description: "Notion parent page ID under which the new page is created.",
+          description: "Notion page ID created by the host runtime.",
         },
-        dryRun: {
-          type: "boolean",
-          description:
-            "If true, perform conversion only and report intended writes without calling the Notion API.",
+        slug: {
+          type: "string",
+          description: "Run slug (directory name under output/runs/) the mapping belongs to.",
+        },
+        notionUrl: {
+          type: "string",
+          description: "Optional Notion page URL for downstream reporting.",
+        },
+        rootDir: {
+          type: "string",
+          description: "Optional alternate runs root; defaults to ./output/runs.",
         },
       },
-      required: ["pageIdOrUrl", "parentNotionPageId"],
+      required: ["confluencePageId", "notionPageId", "slug"],
       additionalProperties: false,
       $schema: JSON_SCHEMA_DRAFT,
     },
@@ -187,23 +194,15 @@ export interface CreateServerOptions {
    * Builds a Confluence adapter for read-only tool handlers (c2n_fetch_page).
    * Tests inject a fake adapter; the production stdio entry wires this through
    * getConfluenceCreds() (a `c2n init` profile or the matching env vars).
-   * When undefined, c2n_fetch_page and c2n_migrate_page throw InvalidRequest
-   * naming the missing env vars and pointing at `c2n init`.
+   * When undefined, c2n_fetch_page throws InvalidRequest naming the missing
+   * env vars and pointing at `c2n init`.
    */
   confluenceFactory?: (overrides?: { baseUrl?: string }) => ConfluenceAdapter;
   /**
-   * Builds a Notion adapter for the c2n_migrate_page write handler. Tests
-   * inject a fake adapter; the production stdio entry wires this through
-   * getNotionCreds() (a `c2n init` profile or the matching env vars). When
-   * undefined, c2n_migrate_page throws InvalidRequest naming the missing
-   * env var and pointing at `c2n init`.
-   */
-  notionFactory?: () => NotionAdapter;
-  /**
    * Root directory under which run artifacts (source.json, report.md,
-   * resolution.json, converted/<pageId>.json) live. Defaults to
-   * `<cwd>/output/runs`. Used by both the c2n_list_runs / c2n_get_run_report
-   * tool handlers and the ReadResourceRequestSchema handler.
+   * resolution.json, converted/<pageId>.json, mapping.json) live. Defaults
+   * to `<cwd>/output/runs`. Used by the c2n_list_runs, c2n_get_run_report,
+   * c2n_record_migration handlers and the ReadResourceRequestSchema handler.
    */
   runsRoot?: string;
 }
@@ -219,10 +218,12 @@ const FetchPageInputSchema = z.object({
   baseUrl: z.string().optional(),
 });
 
-const MigratePageInputSchema = z.object({
-  pageIdOrUrl: z.string().min(1),
-  parentNotionPageId: z.string().min(1),
-  dryRun: z.boolean().optional(),
+const RecordMigrationInputSchema = z.object({
+  confluencePageId: z.string().min(1),
+  notionPageId: z.string().min(1),
+  slug: z.string().min(1),
+  notionUrl: z.string().optional(),
+  rootDir: z.string().optional(),
 });
 
 // Both run-read handlers accept an optional `rootDir` so tests can target a tmp
@@ -321,7 +322,6 @@ const EMPTY_RULESET: FinalRuleset = { source: "mcp", rules: [] };
 export function createServer(options: CreateServerOptions = {}): Server {
   const ruleset = options.ruleset ?? EMPTY_RULESET;
   const confluenceFactory = options.confluenceFactory;
-  const notionFactory = options.notionFactory;
   const runsRootOption = options.runsRoot;
   const server = new Server(
     { name: "c2n-mcp", version: "0.1.0" },
@@ -477,61 +477,49 @@ export function createServer(options: CreateServerOptions = {}): Server {
         ],
       };
     }
-    if (name === "c2n_migrate_page") {
-      if (!confluenceFactory) {
-        throw new McpError(
-          ErrorCode.InvalidRequest,
-          "c2n_migrate_page requires Confluence credentials. Run `c2n init` to store a profile, or set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN in the server environment.",
-        );
+    if (name === "c2n_record_migration") {
+      const parsed = RecordMigrationInputSchema.parse(args ?? {});
+      const root = resolveRunsRoot(parsed.rootDir, runsRootOption);
+      const runDir = join(root, parsed.slug);
+      try {
+        const info = await stat(runDir);
+        if (!info.isDirectory()) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Run slug "${parsed.slug}" is not a directory under ${root}.`,
+          );
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `No run directory found for slug "${parsed.slug}" under ${root}.`,
+          );
+        }
+        throw err;
       }
-      if (!notionFactory) {
-        throw new McpError(
-          ErrorCode.InvalidRequest,
-          "c2n_migrate_page requires a Notion token. Run `c2n init` to store a profile, or set NOTION_TOKEN in the server environment.",
-        );
-      }
-      const parsed = MigratePageInputSchema.parse(args ?? {});
-      const pageId = resolvePageId("c2n_migrate_page", parsed.pageIdOrUrl);
-      const adapter = confluenceFactory();
-      const page = await adapter.getPage(pageId);
-      const conversion = convertXhtmlToConversionResult(ruleset, page.body.storage.value, page.id);
-      const blockCount = conversion.blocks.length;
-      const unresolvedCount = conversion.unresolved.length;
-      if (parsed.dryRun === true) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                dryRun: true,
-                sourcePageId: page.id,
-                title: page.title,
-                blockCount,
-                unresolvedCount,
-              }),
-            },
-          ],
-        };
-      }
-      const notion = notionFactory();
-      const blocks = conversion.blocks as unknown as NotionBlock[];
-      const notionRef = await notion.createPage({
-        parent: { id: parsed.parentNotionPageId },
-        title: page.title,
-        blocks: [],
+      const mapping = MappingSchema.parse({
+        confluencePageId: parsed.confluencePageId,
+        notionPageId: parsed.notionPageId,
+        ...(parsed.notionUrl !== undefined ? { notionUrl: parsed.notionUrl } : {}),
       });
-      await notion.appendBlocks(notionRef.id, blocks);
+      await mkdir(runDir, { recursive: true });
+      const payload = {
+        confluencePageId: mapping.confluencePageId,
+        notionPageId: mapping.notionPageId,
+        ...(mapping.notionUrl !== undefined ? { notionUrl: mapping.notionUrl } : {}),
+        recordedAt: mapping.recordedAt.toISOString(),
+      };
+      await writeFile(
+        join(runDir, "mapping.json"),
+        `${JSON.stringify(payload, null, 2)}\n`,
+        "utf8",
+      );
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify({
-              notionPageId: notionRef.id,
-              sourcePageId: page.id,
-              title: page.title,
-              blockCount,
-              unresolvedCount,
-            }),
+            text: JSON.stringify(payload),
           },
         ],
       };
