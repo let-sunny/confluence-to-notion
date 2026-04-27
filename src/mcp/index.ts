@@ -4,7 +4,21 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createServer } from "./server.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ConfigStoreError,
+  type ConfigStoreOptions,
+  getConfluenceCreds,
+  getNotionCreds,
+  resolveProfileName,
+} from "../configStore.js";
+import {
+  type ConfluenceAdapter,
+  type FetchLike,
+  createConfluenceClient,
+} from "../confluence/client.js";
+import { type NotionAdapter, createNotionClient } from "../notion/client.js";
+import { type CreateServerOptions, createServer } from "./server.js";
 
 function realpathOrSelf(p: string): string {
   try {
@@ -14,8 +28,71 @@ function realpathOrSelf(p: string): string {
   }
 }
 
+function resolveConfigDirOpts(): ConfigStoreOptions {
+  const dir = process.env.C2N_CONFIG_DIR?.trim();
+  return dir !== undefined && dir.length > 0 ? { configDir: dir } : {};
+}
+
+function asInvalidRequest(err: unknown): McpError {
+  if (err instanceof ConfigStoreError) {
+    return new McpError(
+      ErrorCode.InvalidRequest,
+      `${err.message}; set creds via \`c2n init\` or env vars`,
+    );
+  }
+  if (err instanceof Error) {
+    return new McpError(ErrorCode.InvalidRequest, err.message);
+  }
+  return new McpError(ErrorCode.InvalidRequest, String(err));
+}
+
+function buildConfluenceFactory(
+  profile: string,
+): (overrides?: { baseUrl?: string }) => ConfluenceAdapter {
+  return (overrides) => {
+    let creds: ReturnType<typeof getConfluenceCreds>;
+    try {
+      creds = getConfluenceCreds(profile, resolveConfigDirOpts());
+    } catch (e) {
+      throw asInvalidRequest(e);
+    }
+    const baseUrl = overrides?.baseUrl ?? creds.baseUrl;
+    const trimmedBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+    const useGlobal = process.env.C2N_USE_GLOBAL_FETCH === "1";
+    const g = globalThis as { fetch?: FetchLike };
+    return createConfluenceClient({
+      email: creds.email,
+      token: creds.apiToken,
+      baseUrl: trimmedBaseUrl,
+      ...(useGlobal && typeof g.fetch === "function" ? { fetchImpl: g.fetch } : {}),
+    });
+  };
+}
+
+function buildNotionFactory(profile: string): () => NotionAdapter {
+  return () => {
+    let creds: ReturnType<typeof getNotionCreds>;
+    try {
+      creds = getNotionCreds(profile, resolveConfigDirOpts());
+    } catch (e) {
+      throw asInvalidRequest(e);
+    }
+    return createNotionClient({ token: creds.token });
+  };
+}
+
+export function buildServerOptions(): CreateServerOptions {
+  const profile = resolveProfileName(undefined, resolveConfigDirOpts());
+  const allowWrite = process.env.C2N_MCP_ALLOW_WRITE === "1";
+  return {
+    allowWrite,
+    confluenceFactory: buildConfluenceFactory(profile),
+    notionFactory: buildNotionFactory(profile),
+  };
+}
+
 export async function main(): Promise<void> {
-  const server = createServer();
+  const server = createServer(buildServerOptions());
   const transport = new StdioServerTransport();
 
   let shuttingDown = false;

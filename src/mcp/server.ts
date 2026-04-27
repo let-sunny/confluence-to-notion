@@ -191,16 +191,18 @@ export interface CreateServerOptions {
   ruleset?: FinalRuleset;
   /**
    * Builds a Confluence adapter for read-only tool handlers (c2n_fetch_page).
-   * Tests inject a fake adapter; the production stdio entry wires this from
-   * src/config.ts + src/cli/confluenceEnv.ts. When undefined, c2n_fetch_page
-   * throws InvalidRequest naming the missing env vars.
+   * Tests inject a fake adapter; the production stdio entry wires this through
+   * getConfluenceCreds() (a `c2n init` profile or the matching env vars).
+   * When undefined, c2n_fetch_page throws InvalidRequest naming the missing
+   * env vars and pointing at `c2n init`.
    */
   confluenceFactory?: (overrides?: { baseUrl?: string }) => ConfluenceAdapter;
   /**
    * Builds a Notion adapter for the c2n_migrate_page write handler. Tests
-   * inject a fake adapter; the production stdio entry wires this from
-   * NOTION_TOKEN. When undefined and allowWrite is true, c2n_migrate_page
-   * throws InvalidRequest naming the missing env var.
+   * inject a fake adapter; the production stdio entry wires this through
+   * getNotionCreds() (a `c2n init` profile or the matching env vars). When
+   * undefined and allowWrite is true, c2n_migrate_page throws InvalidRequest
+   * naming the missing env var and pointing at `c2n init`.
    */
   notionFactory?: () => NotionAdapter;
   /**
@@ -462,7 +464,7 @@ export function createServer(options: CreateServerOptions = {}): Server {
       if (!confluenceFactory) {
         throw new McpError(
           ErrorCode.InvalidRequest,
-          "c2n_fetch_page requires CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN to be set in the server environment.",
+          "c2n_fetch_page requires Confluence credentials. Run `c2n init` to store a profile, or set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN in the server environment.",
         );
       }
       const parsed = FetchPageInputSchema.parse(args ?? {});
@@ -494,13 +496,13 @@ export function createServer(options: CreateServerOptions = {}): Server {
       if (!confluenceFactory) {
         throw new McpError(
           ErrorCode.InvalidRequest,
-          "c2n_migrate_page requires CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN to be set in the server environment.",
+          "c2n_migrate_page requires Confluence credentials. Run `c2n init` to store a profile, or set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN in the server environment.",
         );
       }
       if (!notionFactory) {
         throw new McpError(
           ErrorCode.InvalidRequest,
-          "c2n_migrate_page requires NOTION_TOKEN to be set in the server environment.",
+          "c2n_migrate_page requires a Notion token. Run `c2n init` to store a profile, or set NOTION_TOKEN in the server environment.",
         );
       }
       const parsed = MigratePageInputSchema.parse(args ?? {});

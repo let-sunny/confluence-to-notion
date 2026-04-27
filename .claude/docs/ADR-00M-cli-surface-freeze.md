@@ -92,6 +92,19 @@ Captured from `src/confluence_to_notion/cli.py` and
 |---|---|---|---|---|---|
 | _none_ | — | — | — | — | No flags. Reads `currentProfile` and the `profiles` map from the config file. |
 
+### `c2n-mcp` stdio entry (post-freeze)
+
+> Not a `c2n` subcommand — `c2n-mcp` is a separate bin shipped in the same npm
+> package, intended for MCP clients (e.g. `claude_desktop_config.json`). Issue
+> #206 (slice 5) routes its Confluence/Notion credential resolution through the
+> same `getConfluenceCreds(profile?)` / `getNotionCreds(profile?)` helpers used
+> by every data-prep subcommand: resolution order is `C2N_PROFILE` →
+> `currentProfile` from the config file → literal `default`. The `env:` block
+> in `claude_desktop_config.json` is therefore optional once `c2n init` has been
+> run; missing-credential errors are surfaced to the MCP client as
+> `InvalidRequest` with a message that names the missing env vars and points at
+> `c2n init`. Writes (`c2n_migrate_page`) stay opt-in via `C2N_MCP_ALLOW_WRITE=1`.
+
 ### `c2n fetch`
 
 > Fetch Confluence pages and save XHTML to disk.
