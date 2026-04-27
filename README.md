@@ -36,18 +36,12 @@ Requires Node 20 LTS or newer.
 
 ## Quickstart
 
-Migrate an entire Confluence subtree (pages + bodies) into a Notion parent
-page:
+Store credentials once with `c2n init`, then migrate an entire Confluence
+subtree (pages + bodies) into a Notion parent page:
 
 ```bash
-export CONFLUENCE_BASE_URL="https://your-org.atlassian.net/wiki"
-export CONFLUENCE_EMAIL="you@example.com"
-export CONFLUENCE_API_TOKEN="<atlassian-api-token>"
-export NOTION_TOKEN="ntn_..."
-export NOTION_ROOT_PAGE_ID="<notion-page-id>"
-
-c2n notion-ping                                 # verify the Notion token
-c2n migrate-tree-pages \
+c2n init                                        # interactive: stores credentials in a profile
+c2n notion-ping && c2n migrate-tree-pages \
   --root-id <confluence-root-page-id> \
   --url "https://your-org.atlassian.net/wiki/spaces/DOC/pages/<id>"
 ```
@@ -57,15 +51,36 @@ For a single page see
 
 ## Configuration
 
-All configuration is via environment variables loaded from `.env` (or the
-shell). The full table — required vs. optional, defaults, and self-hosted
-overrides — lives in
-[`CONTRIBUTING.md` § 1](./CONTRIBUTING.md#1-development-environment-setup).
+The recommended way to configure credentials is `c2n init`, which interactively
+prompts for your Confluence base URL / email / API token and your Notion token
++ root page ID, then stores them in a per-user config file. Subsequent
+commands (`c2n notion-ping`, `c2n migrate-tree-pages`, `c2n convert`, …) read
+from the same store, so you don't need to re-export them in each shell.
 
-Public wikis (e.g. `cwiki.apache.org`) only need `CONFLUENCE_BASE_URL`.
-Private Atlassian Cloud wikis additionally need `CONFLUENCE_EMAIL` +
-`CONFLUENCE_API_TOKEN`. Any command that writes to Notion needs
-`NOTION_TOKEN` and `NOTION_ROOT_PAGE_ID`.
+To update only one side later, use the targeted variants:
+
+```bash
+c2n auth confluence    # update only the Confluence credentials
+c2n auth notion        # update only the Notion credentials
+```
+
+### Profiles
+
+Credentials are stored under a named **profile** (`default` if you don't pick
+one). Pass `--profile <name>` to any command, or set `C2N_PROFILE=<name>` to
+switch profiles for a whole shell. List configured profiles with
+`c2n profiles list` and switch the active one with `c2n use <name>`.
+
+### CI / advanced: environment variables
+
+Non-interactive environments (CI, containers) can skip `c2n init` and supply
+credentials via environment variables instead. Public wikis (e.g.
+`cwiki.apache.org`) only need `CONFLUENCE_BASE_URL`. Private Atlassian Cloud
+wikis additionally need `CONFLUENCE_EMAIL` + `CONFLUENCE_API_TOKEN`. Any
+command that writes to Notion needs `NOTION_TOKEN` and `NOTION_ROOT_PAGE_ID`.
+The full table — required vs. optional, defaults, and self-hosted overrides —
+lives in
+[`CONTRIBUTING.md` § 1](./CONTRIBUTING.md#1-development-environment-setup).
 
 A ready-to-fork GitHub Actions workflow that runs `c2n migrate-tree-pages` on
 a schedule lives at
