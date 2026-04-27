@@ -6,8 +6,8 @@
 // Tool handlers (c2n_fetch_page, c2n_convert_page, c2n_list_runs,
 // c2n_get_run_report, c2n_migrate_page) and the ReadResourceRequestSchema
 // handler for the four c2n://runs/{slug}/... templates are implemented in
-// this file. c2n_migrate_page is gated behind the allowWrite option; the
-// production stdio entry decides whether to enable it.
+// this file. c2n_migrate_page calls always require Confluence and Notion
+// credentials to resolve; per-call `dryRun: true` skips the Notion write.
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -124,7 +124,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "c2n_migrate_page",
     description:
-      "Migrate a single Confluence page to Notion (write). Disabled unless the server is started with allowWrite: true.",
+      "Migrate a single Confluence page to Notion (write). Pass dryRun: true to run the conversion without calling the Notion API.",
     inputSchema: {
       type: "object",
       properties: {
@@ -178,12 +178,6 @@ const RESOURCE_TEMPLATES: ResourceTemplateDefinition[] = [
 
 export interface CreateServerOptions {
   /**
-   * Allow tool handlers that perform writes (c2n_migrate_page). Defaults to
-   * false; even when false the tool is still listed so clients can discover
-   * the contract.
-   */
-  allowWrite?: boolean;
-  /**
    * Ruleset threaded into convertXhtmlToConversionResult. Defaults to an
    * empty ruleset so unresolved items surface with placeholder URLs — the
    * same fallback the CLI uses when no finalized ruleset is available.
@@ -193,16 +187,16 @@ export interface CreateServerOptions {
    * Builds a Confluence adapter for read-only tool handlers (c2n_fetch_page).
    * Tests inject a fake adapter; the production stdio entry wires this through
    * getConfluenceCreds() (a `c2n init` profile or the matching env vars).
-   * When undefined, c2n_fetch_page throws InvalidRequest naming the missing
-   * env vars and pointing at `c2n init`.
+   * When undefined, c2n_fetch_page and c2n_migrate_page throw InvalidRequest
+   * naming the missing env vars and pointing at `c2n init`.
    */
   confluenceFactory?: (overrides?: { baseUrl?: string }) => ConfluenceAdapter;
   /**
    * Builds a Notion adapter for the c2n_migrate_page write handler. Tests
    * inject a fake adapter; the production stdio entry wires this through
    * getNotionCreds() (a `c2n init` profile or the matching env vars). When
-   * undefined and allowWrite is true, c2n_migrate_page throws InvalidRequest
-   * naming the missing env var and pointing at `c2n init`.
+   * undefined, c2n_migrate_page throws InvalidRequest naming the missing
+   * env var and pointing at `c2n init`.
    */
   notionFactory?: () => NotionAdapter;
   /**
@@ -324,11 +318,8 @@ function resolvePageId(toolName: string, pageIdOrUrl: string): string {
 
 const EMPTY_RULESET: FinalRuleset = { source: "mcp", rules: [] };
 
-const WRITE_TOOLS = new Set(["c2n_migrate_page"]);
-
 export function createServer(options: CreateServerOptions = {}): Server {
   const ruleset = options.ruleset ?? EMPTY_RULESET;
-  const allowWrite = options.allowWrite === true;
   const confluenceFactory = options.confluenceFactory;
   const notionFactory = options.notionFactory;
   const runsRootOption = options.runsRoot;
@@ -406,12 +397,6 @@ export function createServer(options: CreateServerOptions = {}): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    if (WRITE_TOOLS.has(name) && !allowWrite) {
-      throw new McpError(
-        ErrorCode.InvalidRequest,
-        `Tool ${name} requires the server to be started with allowWrite: true.`,
-      );
-    }
     if (name === "c2n_convert_page") {
       const parsed = ConvertPageInputSchema.parse(args ?? {});
       const result = convertXhtmlToConversionResult(ruleset, parsed.xhtml, parsed.pageId ?? "");

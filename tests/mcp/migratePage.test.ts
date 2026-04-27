@@ -72,7 +72,6 @@ function fakeNotion(state: NotionState, ref: NotionPageRef): NotionAdapter {
 }
 
 interface ConnectOptions {
-  allowWrite?: boolean;
   withConfluence?: boolean;
   withNotion?: boolean;
   page?: ConfluencePage;
@@ -88,9 +87,6 @@ async function connect(opts: ConnectOptions = {}) {
     url: "https://www.notion.so/notion-new-page",
   };
   const serverOptions: Parameters<typeof createServer>[0] = {};
-  if (opts.allowWrite !== undefined) {
-    serverOptions.allowWrite = opts.allowWrite;
-  }
   if (opts.withConfluence !== false) {
     serverOptions.confluenceFactory = () => fakeConfluence(confluenceState, page);
   }
@@ -105,23 +101,8 @@ async function connect(opts: ConnectOptions = {}) {
 }
 
 describe("c2n_migrate_page tool handler", () => {
-  it("rejects with InvalidRequest naming the tool when allowWrite is not enabled", async () => {
-    const { client, server } = await connect({ allowWrite: false });
-    try {
-      await expect(
-        client.callTool({
-          name: "c2n_migrate_page",
-          arguments: { pageIdOrUrl: "1", parentNotionPageId: "abc" },
-        }),
-      ).rejects.toThrow(/c2n_migrate_page.*allowWrite/);
-    } finally {
-      await client.close();
-      await server.close();
-    }
-  });
-
-  it("rejects with InvalidRequest naming NOTION_TOKEN when allowWrite is true but no notionFactory is wired", async () => {
-    const { client, server } = await connect({ allowWrite: true, withNotion: false });
+  it("rejects with InvalidRequest naming NOTION_TOKEN when no notionFactory is wired", async () => {
+    const { client, server } = await connect({ withNotion: false });
     try {
       await expect(
         client.callTool({
@@ -148,7 +129,6 @@ describe("c2n_migrate_page tool handler", () => {
       url: "https://www.notion.so/notion-9001",
     };
     const { client, server, confluenceState, notionState } = await connect({
-      allowWrite: true,
       page,
       notionRef: ref,
     });
@@ -183,9 +163,7 @@ describe("c2n_migrate_page tool handler", () => {
   });
 
   it("dryRun: true skips both createPage and appendBlocks but still reports conversion stats", async () => {
-    const { client, server, confluenceState, notionState } = await connect({
-      allowWrite: true,
-    });
+    const { client, server, confluenceState, notionState } = await connect();
     try {
       const response = await client.callTool({
         name: "c2n_migrate_page",

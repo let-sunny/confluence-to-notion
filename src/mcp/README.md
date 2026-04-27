@@ -24,7 +24,7 @@ All inputs are JSON objects (`additionalProperties: false`).
 
 | Name                | Required input                              | Returns                                                                                              | Notes                                                                                                                                   |
 | ------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `c2n_migrate_page`  | `pageIdOrUrl`, `parentNotionPageId`         | JSON text: `{ notionPageId?, sourcePageId, title, blockCount, unresolvedCount, dryRun? }`            | Disabled unless the server is started with `allowWrite: true`. With `dryRun: true` the converter still runs but Notion is not called. |
+| `c2n_migrate_page`  | `pageIdOrUrl`, `parentNotionPageId`         | JSON text: `{ notionPageId?, sourcePageId, title, blockCount, unresolvedCount, dryRun? }`            | Pass `dryRun: true` to run the conversion without calling the Notion API. Per-call safety knob; chat-side approval belongs in the host. |
 
 `c2n_migrate_page` requires both a Confluence adapter and a Notion adapter
 (see [Configuration](#configuration) for the resolution order). A missing
@@ -74,15 +74,14 @@ Once a user has run `c2n init`, the `env:` block in
 the store under the resolved profile. Missing creds surface as an
 `InvalidRequest` error suggesting `c2n init` or env vars.
 
-`allowWrite` and `runsRoot` are constructor options on `createServer` rather
-than env vars; the production stdio entry decides how to wire them based on
-the deployment context.
+`runsRoot` is a constructor option on `createServer` rather than an env var;
+the production stdio entry decides how to wire it based on the deployment
+context.
 
 ## Errors
 
 | Condition                                                  | `ErrorCode`           |
 | ---------------------------------------------------------- | --------------------- |
-| Write tool invoked while `allowWrite` is `false`           | `InvalidRequest`      |
 | Required env-driven adapter is unavailable                 | `InvalidRequest`      |
 | Unknown run slug or missing run artifact (`ENOENT`)        | `InvalidParams`       |
 | Unsupported resource URI scheme or unknown URI shape       | `InvalidParams`       |

@@ -103,7 +103,9 @@ Captured from `src/confluence_to_notion/cli.py` and
 > in `claude_desktop_config.json` is therefore optional once `c2n init` has been
 > run; missing-credential errors are surfaced to the MCP client as
 > `InvalidRequest` with a message that names the missing env vars and points at
-> `c2n init`. Writes (`c2n_migrate_page`) stay opt-in via `C2N_MCP_ALLOW_WRITE=1`.
+> `c2n init`. Issue #212 dropped the prior `C2N_MCP_ALLOW_WRITE` /
+> `allowWrite` gate: `c2n_migrate_page` is always callable when both
+> credentials resolve, with `dryRun: true` as the per-call safety knob.
 
 ### `c2n fetch`
 
