@@ -5,6 +5,7 @@ import { registerDiscoverShim } from "./discover.js";
 import { registerEvalHarness } from "./evalHarness.js";
 import { registerFetchCommands } from "./fetch.js";
 import { registerFinalizeCommands } from "./finalize.js";
+import { registerInitCommand } from "./init.js";
 import { registerMigrateCommands } from "./migrate.js";
 import { registerNotionCommands } from "./notion.js";
 import { registerValidateCommands } from "./validate.js";
@@ -24,6 +25,7 @@ export function createProgram(): Command {
     .option("--quiet", "suppress non-essential output")
     .option("--no-color", "disable ANSI color output");
 
+  registerInitCommand(program);
   registerFetchCommands(program);
   registerNotionCommands(program);
   registerDiscoverShim(program);
