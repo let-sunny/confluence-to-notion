@@ -36,7 +36,7 @@ Run these in order. Each numbered step is one tool call.
 4. **If `unresolved.length > 0` →** branch into the [Q/A loop](#qa-loop-playbook-3) below. Re-run step 3 once new rules land. Default policy: do not create the Notion page until `unresolved` is empty (most teams want zero-unresolved). If the user explicitly opts into a partial migration, proceed and surface the gap in your final summary.
 5. **Create the Notion page.** Call the host's Notion MCP `create_page` with `{ parent, properties: { title } }`. Capture the returned page id as `notionPageId`.
 6. **Append blocks.** Call the host's Notion MCP `append_blocks` with `{ block_id: notionPageId, children: blocks }`. **Chunk `children` at 100 per call** — Notion's API rejects more in a single request. Loop until all blocks land.
-7. **Record the mapping.** Call `c2n_record_migration` with `{ confluencePageId: pageId, notionPageId, slug, notionUrl }`. The `slug` must already exist as a directory under `<rootDir>/output/runs/`; if it does not, ask the user to create the run via the c2n CLI (`c2n migrate ...`) or `mkdir -p output/runs/<slug>` first. Without this step, the dedup check in §4 cannot see the page.
+7. **Record the mapping.** Call `c2n_record_migration` with `{ confluencePageId: pageId, notionPageId, slug }` and optionally `notionUrl` if the Notion MCP returned one. The `slug` must already exist as a directory under `<rootDir>/output/runs/`; if it does not, ask the user to create the run via the c2n CLI (`c2n migrate ...`) or `mkdir -p output/runs/<slug>` first. Without this step, the dedup check in §4 cannot see the page.
 
 When you finish, summarize: source URL, `notionPageId`, run slug, count of unresolved that were resolved during the session, and any partial-migration gaps.
 

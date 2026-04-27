@@ -17,6 +17,8 @@ Copy this directory (`skills/c2n-migrate/`) into the host's skill location, then
 
 Out of scope for this bundle: npm publish / clawhub publish workflows, and multi-tenant / multi-workspace setups (the skill assumes a single c2n profile + a single Notion workspace per session). Both are tracked separately.
 
+> **Distribution note**: `skills/` is not in the npm tarball (`package.json` `files` whitelist excludes it), so `npm i -g confluence-to-notion` does not install this bundle. Clone or download the repo to get it.
+
 ## Smoke walk-through (single page)
 
 Once both MCP servers are registered and the skill bundle is loaded:
