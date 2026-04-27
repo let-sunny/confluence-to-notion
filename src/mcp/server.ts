@@ -11,7 +11,7 @@
 // post the resulting Notion page ID back via c2n_record_migration.
 
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -23,9 +23,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { FinalRuleset } from "../agentOutput/finalRuleset.js";
+import { ProposedRuleSchema, ProposerOutputSchema } from "../agentOutput/schemas.js";
+import { finalizeProposalsToRules } from "../cli/finalize.js";
 import type { ConfluenceAdapter } from "../confluence/client.js";
 import { convertXhtmlToConversionResult } from "../converter/convertPage.js";
-import { MappingSchema } from "../runs/index.js";
+import { MappingSchema, RunResolutionSchema } from "../runs/index.js";
 import { parseConfluenceUrl } from "../url.js";
 
 interface ToolDefinition {
@@ -117,6 +119,110 @@ const TOOLS: ToolDefinition[] = [
         },
       },
       required: ["slug"],
+      additionalProperties: false,
+      $schema: JSON_SCHEMA_DRAFT,
+    },
+  },
+  {
+    name: "c2n_list_unresolved",
+    description:
+      "List the questions to ask the human for a migration run: parsed entries from output/runs/<slug>/resolution.json keyed by unresolved-item id. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description: "Run slug (directory name under output/runs/).",
+        },
+        rootDir: {
+          type: "string",
+          description: "Optional alternate runs root; defaults to ./output/runs.",
+        },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+      $schema: JSON_SCHEMA_DRAFT,
+    },
+  },
+  {
+    name: "c2n_propose_resolution",
+    description:
+      "Append a single ProposedRule to proposals.json so the discover-pipeline ruleset can be regenerated. Defaults proposalsPath to <cwd>/output/proposals.json.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rule_id: {
+          type: "string",
+          description: "Unique rule identifier; rejected when already present in proposals.json.",
+        },
+        source_pattern_id: {
+          type: "string",
+          description: "Pattern ID this rule answers, from output/patterns.json.",
+        },
+        source_description: {
+          type: "string",
+          description: "Human-readable description of the source pattern being mapped.",
+        },
+        notion_block_type: {
+          type: "string",
+          description: "Notion block type the converter will emit for matches.",
+        },
+        mapping_description: {
+          type: "string",
+          description: "How the source XHTML maps onto the Notion block type.",
+        },
+        example_input: {
+          type: "string",
+          description: "Example XHTML snippet the rule applies to.",
+        },
+        example_output: {
+          type: "object",
+          description: "Example Notion block payload produced by the rule.",
+          additionalProperties: true,
+        },
+        confidence: {
+          type: "string",
+          enum: ["high", "medium", "low"],
+          description: "Author's confidence in the proposal.",
+        },
+        proposalsPath: {
+          type: "string",
+          description:
+            "Optional override for proposals.json path; defaults to ./output/proposals.json.",
+        },
+      },
+      required: [
+        "rule_id",
+        "source_pattern_id",
+        "source_description",
+        "notion_block_type",
+        "mapping_description",
+        "example_input",
+        "example_output",
+        "confidence",
+      ],
+      additionalProperties: false,
+      $schema: JSON_SCHEMA_DRAFT,
+    },
+  },
+  {
+    name: "c2n_finalize_proposals",
+    description:
+      "Materialize output/proposals.json into output/rules.json by enabling every proposed rule. Same logic as the `c2n finalize` CLI command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        proposalsPath: {
+          type: "string",
+          description:
+            "Optional override for proposals.json path; defaults to ./output/proposals.json.",
+        },
+        rulesOutPath: {
+          type: "string",
+          description:
+            "Optional override for rules.json output path; defaults to ./output/rules.json.",
+        },
+      },
       additionalProperties: false,
       $schema: JSON_SCHEMA_DRAFT,
     },
@@ -241,6 +347,24 @@ const GetRunReportInputSchema = z.object({
   slug: z.string().min(1),
   rootDir: z.string().optional(),
 });
+
+const ListUnresolvedInputSchema = z.object({
+  slug: z.string().min(1),
+  rootDir: z.string().optional(),
+});
+
+const ProposeResolutionInputSchema = ProposedRuleSchema.extend({
+  proposalsPath: z.string().optional(),
+}).strict();
+
+const DEFAULT_PATTERNS_FILE = "output/patterns.json";
+
+const FinalizeProposalsInputSchema = z
+  .object({
+    proposalsPath: z.string().optional(),
+    rulesOutPath: z.string().optional(),
+  })
+  .strict();
 
 function resolveRunsRoot(rootDir: string | undefined, fallback: string | undefined): string {
   return rootDir ?? fallback ?? join(process.cwd(), "output", "runs");
@@ -475,6 +599,101 @@ export function createServer(options: CreateServerOptions = {}): Server {
           {
             type: "text",
             text: JSON.stringify(payload),
+          },
+        ],
+      };
+    }
+    if (name === "c2n_list_unresolved") {
+      const parsed = ListUnresolvedInputSchema.parse(args ?? {});
+      const root = resolveRunsRoot(parsed.rootDir, runsRootOption);
+      const runDir = join(root, parsed.slug);
+      try {
+        const info = await stat(runDir);
+        if (!info.isDirectory()) {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `Run slug "${parsed.slug}" is not a directory under ${root}.`,
+          );
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `No run directory found for slug "${parsed.slug}" under ${root}.`,
+          );
+        }
+        throw err;
+      }
+      const resolutionPath = join(runDir, "resolution.json");
+      let raw: string;
+      try {
+        raw = await readFile(resolutionPath, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `No resolution.json found for run slug "${parsed.slug}" under ${root}.`,
+          );
+        }
+        throw err;
+      }
+      const entries = RunResolutionSchema.parse(JSON.parse(raw));
+      return { content: [{ type: "text", text: JSON.stringify(entries) }] };
+    }
+    if (name === "c2n_propose_resolution") {
+      const parsed = ProposeResolutionInputSchema.parse(args ?? {});
+      const { proposalsPath: pathOverride, ...proposal } = parsed;
+      const proposalsPath = pathOverride ?? join(process.cwd(), "output", "proposals.json");
+      let existing: z.infer<typeof ProposerOutputSchema>;
+      try {
+        const raw = await readFile(proposalsPath, "utf8");
+        existing = ProposerOutputSchema.parse(JSON.parse(raw));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          existing = { source_patterns_file: DEFAULT_PATTERNS_FILE, rules: [] };
+        } else {
+          throw err;
+        }
+      }
+      if (existing.rules.some((rule) => rule.rule_id === proposal.rule_id)) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Proposal rule_id "${proposal.rule_id}" already exists in ${proposalsPath}.`,
+        );
+      }
+      const next = {
+        source_patterns_file: existing.source_patterns_file,
+        rules: [...existing.rules, proposal],
+      };
+      await mkdir(dirname(proposalsPath), { recursive: true });
+      await writeFile(proposalsPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ ruleCount: next.rules.length, ruleId: proposal.rule_id }),
+          },
+        ],
+      };
+    }
+    if (name === "c2n_finalize_proposals") {
+      const parsed = FinalizeProposalsInputSchema.parse(args ?? {});
+      const proposalsPath = parsed.proposalsPath ?? join(process.cwd(), "output", "proposals.json");
+      const rulesPath = parsed.rulesOutPath ?? join(process.cwd(), "output", "rules.json");
+      let result: { ruleCount: number };
+      try {
+        result = await finalizeProposalsToRules(proposalsPath, rulesPath);
+      } catch (err) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Failed to finalize ${proposalsPath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ ruleCount: result.ruleCount, rulesPath }),
           },
         ],
       };

@@ -76,6 +76,104 @@
       }
     },
     {
+      "name": "c2n_list_unresolved",
+      "description": "List the questions to ask the human for a migration run: parsed entries from output/runs/<slug>/resolution.json keyed by unresolved-item id. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Run slug (directory name under output/runs/)."
+          },
+          "rootDir": {
+            "type": "string",
+            "description": "Optional alternate runs root; defaults to ./output/runs."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_propose_resolution",
+      "description": "Append a single ProposedRule to proposals.json so the discover-pipeline ruleset can be regenerated. Defaults proposalsPath to <cwd>/output/proposals.json.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "description": "Unique rule identifier; rejected when already present in proposals.json."
+          },
+          "source_pattern_id": {
+            "type": "string",
+            "description": "Pattern ID this rule answers, from output/patterns.json."
+          },
+          "source_description": {
+            "type": "string",
+            "description": "Human-readable description of the source pattern being mapped."
+          },
+          "notion_block_type": {
+            "type": "string",
+            "description": "Notion block type the converter will emit for matches."
+          },
+          "mapping_description": {
+            "type": "string",
+            "description": "How the source XHTML maps onto the Notion block type."
+          },
+          "example_input": {
+            "type": "string",
+            "description": "Example XHTML snippet the rule applies to."
+          },
+          "example_output": {
+            "type": "object",
+            "description": "Example Notion block payload produced by the rule.",
+            "additionalProperties": true
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Author's confidence in the proposal."
+          },
+          "proposalsPath": {
+            "type": "string",
+            "description": "Optional override for proposals.json path; defaults to ./output/proposals.json."
+          }
+        },
+        "required": [
+          "rule_id",
+          "source_pattern_id",
+          "source_description",
+          "notion_block_type",
+          "mapping_description",
+          "example_input",
+          "example_output",
+          "confidence"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "c2n_finalize_proposals",
+      "description": "Materialize output/proposals.json into output/rules.json by enabling every proposed rule. Same logic as the `c2n finalize` CLI command.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proposalsPath": {
+            "type": "string",
+            "description": "Optional override for proposals.json path; defaults to ./output/proposals.json."
+          },
+          "rulesOutPath": {
+            "type": "string",
+            "description": "Optional override for rules.json output path; defaults to ./output/rules.json."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
       "name": "c2n_record_migration",
       "description": "Record a Notion page ID created by the host runtime against a Confluence page in this c2n run; persists to output/runs/<slug>/mapping.json. Write.",
       "inputSchema": {
