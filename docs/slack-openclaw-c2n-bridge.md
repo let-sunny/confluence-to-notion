@@ -29,8 +29,10 @@ rules JSON** bridge is built **outside** this repo.
 - **stdio MCP server** `c2n-mcp`: tools such as `c2n_resolve_url`, `c2n_migrate`,
   `c2n_discover`, `c2n_fetch`, `c2n_convert`, `c2n_list_runs`, `c2n_status` (see
   README **MCP** section).
-- **CLI**: `uv run c2n …` — `finalize`, `migrate`, `convert`, `validate-output`, etc.
-- **Rule materialization**: `uv run c2n finalize output/proposals.json` →
+- **CLI**: `c2n …` — `finalize`, `migrate`, `convert`, `validate-output`, etc.
+  (Node 20+; install with `npm i -g confluence-to-notion`, or invoke ad-hoc via
+  `npx -p confluence-to-notion c2n …`.)
+- **Rule materialization**: `c2n finalize output/proposals.json` →
   `rules.json` (plus validation paths).
 - **Migration**: Notion updates from a Confluence URL + `rules.json`.
 
@@ -74,8 +76,8 @@ So **“conversation → rules”** is the **bridge** (your code or OpenClaw ski
   "mcp": {
     "servers": {
       "c2n": {
-        "command": "uv",
-        "args": ["run", "c2n-mcp"],
+        "command": "npx",
+        "args": ["-p", "confluence-to-notion", "c2n-mcp"],
         "cwd": "C:\\path\\to\\confluence-to-notion"
       }
     }
@@ -93,7 +95,9 @@ So **“conversation → rules”** is the **bridge** (your code or OpenClaw ski
 - Use **Git for Windows (Git Bash)** or another approved Bash where `bash` is on
   `PATH`.
 - Prefer repo paths **without spaces or non-ASCII** characters.
-- Run OpenClaw, Claude Code CLI, and `uv` on the **same machine** and align MCP
+- Runtime is **Node 20 LTS** (this repo was ported from Python; there is no
+  `uv` / Python toolchain anymore).
+- Run OpenClaw, Claude Code CLI, and Node on the **same machine** and align MCP
   `cwd` with that layout.
 
 ---
@@ -104,9 +108,9 @@ You can ship a first version **without forking c2n**:
 
 1. The bridge writes **`output/proposals.json`** (valid schema) from chat /
    approval.
-2. `uv run c2n finalize output/proposals.json` → **`rules.json`**.
-3. Validate with `uv run c2n validate-output …` (see CLI / README).
-4. `uv run c2n migrate --url …` or MCP `c2n_migrate` to push to Notion (prefer
+2. `c2n finalize output/proposals.json` → **`rules.json`**.
+3. Validate with `c2n validate-output …` (see CLI / README).
+4. `c2n migrate --url …` or MCP `c2n_migrate` to push to Notion (prefer
    `dry_run` first).
 
 Optional later improvements: MCP tools that accept proposal payloads inline,
@@ -145,4 +149,4 @@ output, etc.
 
 ---
 
-*This document is a handoff summary. Prefer the latest README and `uv run c2n --help` when implementing.*
+*This document is a handoff summary. Prefer the latest README and `c2n --help` when implementing.*
