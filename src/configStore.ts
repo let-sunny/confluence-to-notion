@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import envPaths from "env-paths";
 import { z } from "zod";
 
@@ -63,13 +63,15 @@ export function readConfig(opts?: ConfigStoreOptions): Config {
   try {
     raw = readFileSync(file, "utf8");
   } catch (e) {
-    throw new ConfigStoreError(`Cannot read config file at ${file}: ${String(e)}`);
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new ConfigStoreError(`Cannot read config file at ${file}: ${detail}`);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch (e) {
-    throw new ConfigStoreError(`Invalid JSON in config file ${file}: ${String(e)}`);
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new ConfigStoreError(`Invalid JSON in config file ${file}: ${detail}`);
   }
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
@@ -195,6 +197,3 @@ export function getNotionCreds(profile?: string, opts?: GetCredsOptions): Notion
 
   return { token, rootPageId } as NotionCreds;
 }
-
-// Re-exported for tests / future consumers that want to compose paths.
-export { dirname };

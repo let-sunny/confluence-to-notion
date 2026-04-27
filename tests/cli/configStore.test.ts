@@ -205,6 +205,14 @@ describe("getNotionCreds", () => {
     expect(creds.token).toBe("secret_env");
   });
 
+  it("env vars take precedence over file values, per field", () => {
+    upsertProfile("default", SAMPLE_PROFILE, { configDir: tmp });
+    process.env.NOTION_ROOT_PAGE_ID = "ffffffffffffffffffffffffffffffff";
+    const creds = getNotionCreds(undefined, { configDir: tmp });
+    expect(creds.rootPageId).toBe("ffffffffffffffffffffffffffffffff");
+    expect(creds.token).toBe(SAMPLE_NOTION.token);
+  });
+
   it("legacy NOTION_API_TOKEN env var is also accepted", () => {
     upsertProfile("default", SAMPLE_PROFILE, { configDir: tmp });
     process.env.NOTION_API_TOKEN = "secret_legacy";

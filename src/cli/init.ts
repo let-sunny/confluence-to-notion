@@ -132,7 +132,8 @@ export function registerInitCommand(program: Command): void {
       try {
         await runInitCommand(o);
       } catch (e) {
-        process.stderr.write(`init: ${String(e)}\n`);
+        const msg = e instanceof Error ? e.message : String(e);
+        process.stderr.write(`init: ${msg}\n`);
         process.exit(1);
       }
     });
