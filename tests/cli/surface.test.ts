@@ -129,6 +129,8 @@ const EXPECTED_LEAVES = [
   "init",
   "auth confluence",
   "auth notion",
+  "use",
+  "profiles list",
   "fetch",
   "fetch-tree",
   "notion-ping",

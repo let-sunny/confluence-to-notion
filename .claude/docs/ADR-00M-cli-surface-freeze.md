@@ -34,7 +34,9 @@ Captured from `src/confluence_to_notion/cli.py` and
 > the first post-freeze additive subcommand, introduced by issue #188 (slice 1
 > of credential-storage work). `c2n auth` (with `confluence` and `notion`
 > subcommands) is the second post-freeze addition, introduced by issue #190
-> (slice 2). Adding new subcommands continues to require an ADR amendment.
+> (slice 2). `c2n use` and `c2n profiles list` are the third post-freeze
+> addition, introduced by issue #195 (slice 3). Adding new subcommands
+> continues to require an ADR amendment.
 
 ### `c2n init`
 
@@ -69,6 +71,22 @@ Captured from `src/confluence_to_notion/cli.py` and
 | `--profile` | TEXT | _none_ | — | No | Profile name to update. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 | `--notion-token` | TEXT | _none_ | `NOTION_TOKEN` | No | Notion integration token. Prompted in TTY mode if missing; required in non-TTY mode. |
 | `--notion-root-page-id` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion root page ID. Prompted in TTY mode if missing; required in non-TTY mode. |
+
+### `c2n use`
+
+> Switch the current profile to `<name>`. Mutates only `currentProfile` in the config file; the `profiles` map is left untouched. The named profile must already exist — this command refuses to create a new profile (use `c2n init` for that).
+
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `NAME` (positional) | TEXT | _none_ | — | Yes | Name of an existing profile to mark as `currentProfile`. |
+
+### `c2n profiles list`
+
+> List profile names from the config file, marking the `currentProfile` with a leading `* `. Prints a friendly hint and exits 0 when no profiles are configured. Never prints credential values.
+
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| _none_ | — | — | — | — | No flags. Reads `currentProfile` and the `profiles` map from the config file. |
 
 ### `c2n fetch`
 
