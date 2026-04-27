@@ -83,9 +83,7 @@ function buildNotionFactory(profile: string): () => NotionAdapter {
 
 export function buildServerOptions(): CreateServerOptions {
   const profile = resolveProfileName(undefined, resolveConfigDirOpts());
-  const allowWrite = process.env.C2N_MCP_ALLOW_WRITE === "1";
   return {
-    allowWrite,
     confluenceFactory: buildConfluenceFactory(profile),
     notionFactory: buildNotionFactory(profile),
   };

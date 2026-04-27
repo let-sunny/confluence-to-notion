@@ -77,7 +77,7 @@
     },
     {
       "name": "c2n_migrate_page",
-      "description": "Migrate a single Confluence page to Notion (write). Disabled unless the server is started with allowWrite: true.",
+      "description": "Migrate a single Confluence page to Notion (write). Pass dryRun: true to run the conversion without calling the Notion API.",
       "inputSchema": {
         "type": "object",
         "properties": {

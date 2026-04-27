@@ -15,7 +15,6 @@ const ENV_KEYS = [
   "NOTION_ROOT_PAGE_ID",
   "C2N_PROFILE",
   "C2N_CONFIG_DIR",
-  "C2N_MCP_ALLOW_WRITE",
   "XDG_CONFIG_HOME",
 ] as const;
 
@@ -141,20 +140,5 @@ describe("buildServerOptions credential wiring", () => {
     expect(err.code).toBe(ErrorCode.InvalidRequest);
     expect(err.message).toMatch(/NOTION_TOKEN/);
     expect(err.message).toMatch(/c2n init/);
-  });
-
-  it("defaults allowWrite to false when C2N_MCP_ALLOW_WRITE is not set", async () => {
-    upsertProfile("default", SAMPLE_PROFILE, { configDir: tmp });
-    const { buildServerOptions } = await import("../../src/mcp/index.js");
-    const options = buildServerOptions();
-    expect(options.allowWrite).not.toBe(true);
-  });
-
-  it("enables allowWrite when C2N_MCP_ALLOW_WRITE=1", async () => {
-    upsertProfile("default", SAMPLE_PROFILE, { configDir: tmp });
-    process.env.C2N_MCP_ALLOW_WRITE = "1";
-    const { buildServerOptions } = await import("../../src/mcp/index.js");
-    const options = buildServerOptions();
-    expect(options.allowWrite).toBe(true);
   });
 });
