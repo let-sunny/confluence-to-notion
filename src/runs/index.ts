@@ -17,12 +17,14 @@ import {
 } from "./schemas.js";
 
 export {
+  type Mapping,
   type RunResolution,
   type RunStatus,
   type RunStepName,
   type SourceInfo,
   type StepRecord,
   type StepStatus,
+  MappingSchema,
   RunResolutionSchema,
   RunStatusSchema,
   RunStepNameSchema,

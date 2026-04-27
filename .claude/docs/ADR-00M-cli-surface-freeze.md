@@ -103,9 +103,16 @@ Captured from `src/confluence_to_notion/cli.py` and
 > in `claude_desktop_config.json` is therefore optional once `c2n init` has been
 > run; missing-credential errors are surfaced to the MCP client as
 > `InvalidRequest` with a message that names the missing env vars and points at
-> `c2n init`. Issue #212 dropped the prior `C2N_MCP_ALLOW_WRITE` /
-> `allowWrite` gate: `c2n_migrate_page` is always callable when both
-> credentials resolve, with `dryRun: true` as the per-call safety knob.
+> `c2n init`.
+>
+> Issue #214 / [ADR-007](./ADR.md) reshape the MCP surface to
+> read-mostly + ingest: `c2n_migrate_page` is removed, host runtimes compose
+> `c2n_convert_page` with their own Notion MCP (`create_page` /
+> `append_blocks`), and the new `c2n_record_migration` ingest tool persists
+> the resulting Notion page ID back to `output/runs/<slug>/mapping.json`. The
+> CLI surface intentionally diverges here: `c2n migrate`, `c2n migrate-tree`,
+> and `c2n migrate-tree-pages` keep the in-package Notion adapter for CI
+> scripts and batch use cases.
 
 ### `c2n fetch`
 

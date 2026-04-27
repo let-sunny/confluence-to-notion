@@ -20,16 +20,23 @@ All inputs are JSON objects (`additionalProperties: false`).
 | `c2n_list_runs`       | _(none)_                             | JSON text: sorted array of run slugs                                                   | Optional `rootDir` overrides the default `<cwd>/output/runs`.                                      |
 | `c2n_get_run_report`  | `slug`                               | Plain text of `report.md`                                                              | Optional `rootDir` override; `ENOENT` surfaces as `InvalidParams` naming the slug.                 |
 
-### Write
+### Ingest (write)
 
-| Name                | Required input                              | Returns                                                                                              | Notes                                                                                                                                   |
-| ------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `c2n_migrate_page`  | `pageIdOrUrl`, `parentNotionPageId`         | JSON text: `{ notionPageId?, sourcePageId, title, blockCount, unresolvedCount, dryRun? }`            | Pass `dryRun: true` to run the conversion without calling the Notion API. Per-call safety knob; chat-side approval belongs in the host. |
+Per [ADR-007](../../.claude/docs/ADR.md), the previous `c2n_migrate_page`
+write tool is gone: host runtimes compose `c2n_convert_page` with their own
+Notion MCP (`create_page` / `append_blocks`) and then post the resulting
+Notion page ID back through `c2n_record_migration`, which is the only write
+path the c2n MCP server exposes.
 
-`c2n_migrate_page` requires both a Confluence adapter and a Notion adapter
-(see [Configuration](#configuration) for the resolution order). A missing
-credential surfaces as an `InvalidRequest` error suggesting `c2n init` or the
-matching env var.
+| Name                    | Required input                                | Returns                                              | Notes                                                                                                                                            |
+| ----------------------- | --------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `c2n_record_migration`  | `confluencePageId`, `notionPageId`, `slug`    | JSON text: the persisted mapping                     | Optional `notionUrl` and `rootDir`. Persists `output/runs/<slug>/mapping.json`; an unknown slug surfaces as `InvalidParams` naming the slug.    |
+
+The ask/answer ingest tools `c2n_list_unresolved`, `c2n_propose_resolution`,
+and `c2n_finalize_proposals` land in a follow-up to issue
+[#214](https://github.com/let-sunny/confluence-to-notion/issues/214); until
+they ship, hosts that need to handle unresolved items keep going through the
+CLI.
 
 ## Resources
 
@@ -63,10 +70,9 @@ direct env vars so existing deployments keep working:
 
 | Env var                   | Used for                                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------------------------- |
-| `CONFLUENCE_BASE_URL`     | Builds the Confluence adapter for `c2n_fetch_page` and `c2n_migrate_page`.                     |
+| `CONFLUENCE_BASE_URL`     | Builds the Confluence adapter for `c2n_fetch_page`.                                            |
 | `CONFLUENCE_EMAIL`        | Same.                                                                                          |
 | `CONFLUENCE_API_TOKEN`    | Same.                                                                                          |
-| `NOTION_TOKEN`            | Builds the Notion adapter for `c2n_migrate_page`.                                              |
 | `C2N_CONFIG_DIR`          | Override the config-store directory (defaults to `~/.config/c2n`). Useful for tests.           |
 
 Once a user has run `c2n init`, the `env:` block in

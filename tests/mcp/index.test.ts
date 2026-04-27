@@ -10,9 +10,6 @@ const ENV_KEYS = [
   "CONFLUENCE_EMAIL",
   "CONFLUENCE_API_TOKEN",
   "CONFLUENCE_TOKEN",
-  "NOTION_TOKEN",
-  "NOTION_API_TOKEN",
-  "NOTION_ROOT_PAGE_ID",
   "C2N_PROFILE",
   "C2N_CONFIG_DIR",
   "XDG_CONFIG_HOME",
@@ -76,10 +73,8 @@ describe("buildServerOptions credential wiring", () => {
     const options = buildServerOptions();
 
     expect(typeof options.confluenceFactory).toBe("function");
-    expect(typeof options.notionFactory).toBe("function");
     // Should not throw: profile 'work' resolves and has full creds.
     expect(() => options.confluenceFactory?.()).not.toThrow();
-    expect(() => options.notionFactory?.()).not.toThrow();
   });
 
   it("constructs a Confluence adapter from stored profile creds when env vars are unset", async () => {
@@ -92,18 +87,6 @@ describe("buildServerOptions credential wiring", () => {
     expect(adapter).toBeDefined();
     expect(typeof adapter?.getPage).toBe("function");
     expect(typeof adapter?.listSpacePages).toBe("function");
-  });
-
-  it("constructs a Notion adapter from stored profile creds when env vars are unset", async () => {
-    upsertProfile("default", SAMPLE_PROFILE, { configDir: tmp });
-
-    const { buildServerOptions } = await import("../../src/mcp/index.js");
-    const options = buildServerOptions();
-    const adapter = options.notionFactory?.();
-
-    expect(adapter).toBeDefined();
-    expect(typeof adapter?.createPage).toBe("function");
-    expect(typeof adapter?.appendBlocks).toBe("function");
   });
 
   it("Confluence factory throws InvalidRequest naming env vars and 'c2n init' when creds missing", async () => {
@@ -122,23 +105,6 @@ describe("buildServerOptions credential wiring", () => {
     expect(err.message).toMatch(/CONFLUENCE_BASE_URL/);
     expect(err.message).toMatch(/CONFLUENCE_EMAIL/);
     expect(err.message).toMatch(/CONFLUENCE_API_TOKEN/);
-    expect(err.message).toMatch(/c2n init/);
-  });
-
-  it("Notion factory throws InvalidRequest naming env vars and 'c2n init' when creds missing", async () => {
-    const { buildServerOptions } = await import("../../src/mcp/index.js");
-    const options = buildServerOptions();
-
-    let captured: unknown;
-    try {
-      options.notionFactory?.();
-    } catch (e) {
-      captured = e;
-    }
-    expect(captured).toBeInstanceOf(McpError);
-    const err = captured as McpError;
-    expect(err.code).toBe(ErrorCode.InvalidRequest);
-    expect(err.message).toMatch(/NOTION_TOKEN/);
     expect(err.message).toMatch(/c2n init/);
   });
 });
