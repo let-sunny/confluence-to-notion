@@ -1,8 +1,35 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as readline from "node:readline/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProgram } from "../../src/cli/index.js";
+
+vi.mock("node:readline/promises", () => ({
+  createInterface: vi.fn(),
+}));
+
+interface ScriptedReadline {
+  question: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+}
+
+function scriptReadline(answers: string[]): ScriptedReadline {
+  const remaining = [...answers];
+  const close = vi.fn();
+  const question = vi.fn(async () => {
+    const next = remaining.shift();
+    if (next === undefined) {
+      throw new Error("readline.question called more times than scripted");
+    }
+    return next;
+  });
+  vi.mocked(readline.createInterface).mockReturnValue({
+    question,
+    close,
+  } as unknown as ReturnType<typeof readline.createInterface>);
+  return { question, close };
+}
 
 const ENV_KEYS = [
   "C2N_CONFIG_DIR",
@@ -226,6 +253,73 @@ describe("c2n auth confluence", () => {
     const cfg = await readStoredConfig();
     expect(cfg.profiles.default?.confluence.email).toBe("user@example.com");
   });
+
+  it("TTY mode prompts for missing fields and updates only the confluence subtree", async () => {
+    await seedDefaultProfile();
+    const { question, close } = scriptReadline([
+      "https://prompted.atlassian.net/wiki",
+      "prompted@example.com",
+      "atl-token-prompted",
+    ]);
+
+    const isTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+    try {
+      await createProgram().parseAsync(["node", "c2n", "auth", "confluence"]);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+    }
+
+    expect(question).toHaveBeenCalledTimes(3);
+    expect(question.mock.calls[0]?.[0]).toBe("Confluence base URL: ");
+    expect(question.mock.calls[1]?.[0]).toBe("Confluence account email: ");
+    expect(question.mock.calls[2]?.[0]).toBe("Confluence API token: ");
+    expect(close).toHaveBeenCalledTimes(1);
+
+    const cfg = await readStoredConfig();
+    expect(cfg.profiles.default?.confluence).toEqual({
+      baseUrl: "https://prompted.atlassian.net/wiki",
+      email: "prompted@example.com",
+      apiToken: "atl-token-prompted",
+    });
+    // Notion subtree must remain unchanged.
+    expect(cfg.profiles.default?.notion).toEqual({
+      token: "secret_abc",
+      rootPageId: "00000000000000000000000000000000",
+    });
+  });
+
+  it("TTY mode rejects when a prompted answer is empty", async () => {
+    await seedDefaultProfile();
+    const { close } = scriptReadline([""]);
+
+    const isTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+    try {
+      await expect(
+        createProgram().parseAsync([
+          "node",
+          "c2n",
+          "auth",
+          "confluence",
+          // Only --confluence-base-url is missing; the prompt receives "".
+          "--confluence-email",
+          "user@example.com",
+          "--confluence-api-token",
+          "atl-token-1",
+        ]),
+      ).rejects.toThrow("Empty input for --confluence-base-url; aborting.");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+    }
+
+    expect(close).toHaveBeenCalledTimes(1);
+    // Confluence subtree on default must remain unchanged.
+    const cfg = await readStoredConfig();
+    expect(cfg.profiles.default?.confluence.baseUrl).toBe("https://example.atlassian.net/wiki");
+  });
 });
 
 describe("c2n auth notion", () => {
@@ -340,6 +434,69 @@ describe("c2n auth notion", () => {
       Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
     }
 
+    const cfg = await readStoredConfig();
+    expect(cfg.profiles.default?.notion.token).toBe("secret_abc");
+  });
+
+  it("TTY mode prompts for missing fields and updates only the notion subtree", async () => {
+    await seedDefaultProfile();
+    const { question, close } = scriptReadline([
+      "secret_prompted",
+      "55555555555555555555555555555555",
+    ]);
+
+    const isTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+    try {
+      await createProgram().parseAsync(["node", "c2n", "auth", "notion"]);
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+    }
+
+    expect(question).toHaveBeenCalledTimes(2);
+    expect(question.mock.calls[0]?.[0]).toBe("Notion integration token: ");
+    expect(question.mock.calls[1]?.[0]).toBe("Notion root page ID: ");
+    expect(close).toHaveBeenCalledTimes(1);
+
+    const cfg = await readStoredConfig();
+    expect(cfg.profiles.default?.notion).toEqual({
+      token: "secret_prompted",
+      rootPageId: "55555555555555555555555555555555",
+    });
+    // Confluence subtree must remain unchanged.
+    expect(cfg.profiles.default?.confluence).toEqual({
+      baseUrl: "https://example.atlassian.net/wiki",
+      email: "user@example.com",
+      apiToken: "atl-token-1",
+    });
+  });
+
+  it("TTY mode rejects when a prompted answer is empty", async () => {
+    await seedDefaultProfile();
+    const { close } = scriptReadline([""]);
+
+    const isTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+
+    try {
+      await expect(
+        createProgram().parseAsync([
+          "node",
+          "c2n",
+          "auth",
+          "notion",
+          // Only --notion-root-page-id is missing; the prompt receives "".
+          "--notion-token",
+          "secret_x",
+        ]),
+      ).rejects.toThrow("Empty input for --notion-root-page-id; aborting.");
+    } finally {
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
+    }
+
+    expect(close).toHaveBeenCalledTimes(1);
+    // Notion subtree on default must remain unchanged.
     const cfg = await readStoredConfig();
     expect(cfg.profiles.default?.notion.token).toBe("secret_abc");
   });
