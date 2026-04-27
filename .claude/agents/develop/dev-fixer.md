@@ -44,6 +44,8 @@ Claude Code blocks Edit/Write to most paths under `.claude/`. Exempt subtrees th
 
 For a non-exempt target (e.g. `.claude/rules/*.md`, `.claude/docs/**`), the orchestrator (`scripts/develop.sh`) owns the apply step — emit a unified-diff patch and stop. **Do NOT run `git apply` (or any other command that mutates the target file) on this patch yourself, even if Bash appears to allow it.** Only `scripts/develop.sh` applies the patch — between Step 5 and Step 6 (fixer). Self-applying creates a re-apply conflict that breaks the orchestrator (issue #191).
 
+**Pipeline timing:** After Step 5 (fixer) returns, `apply_protected_patch` runs, then Step 6 (verify). The same handoff file `output/dev/protected-paths.patch` is the sentinel the shell looks for; do not self-apply it.
+
 Workflow:
 1. Read the target file (reads are not blocked).
 2. Build a unified diff with `--- a/<path>`, `+++ b/<path>`, `@@ ... @@` hunk headers. Paths are relative to the repo root.

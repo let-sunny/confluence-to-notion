@@ -40,7 +40,7 @@ You are a development implementer agent. Your job is to execute each task in the
 - Each test should initially fail (Red)
 - Write the minimum code to make the test pass (Green)
 - If a task only has `affected_files` (no `test_files`), it's infrastructure (scripts, config, agent definitions) — implement directly
-- **Stub at user-input / I/O boundaries only** — `Prompt.ask`, raw HTTP responses, file I/O, subprocess 같은 경계에서만 mock/patch 한다. helper 함수(예: 정규화·변환 로직)의 반환값 자체를 stub 하면 helper 내부 회귀가 테스트를 통과해버려 reviewer도 잡기 어렵다 (관측 사례: #65의 `_prompt_table_rule.title_column` 정규화 회귀). helper는 실제로 호출되게 두고, 그 아래 경계를 mock 하라.
+- **Stub at user-input / I/O boundaries only** — mock or patch only at boundaries such as `Prompt.ask`, raw HTTP responses, file I/O, and subprocesses. Stubbing a helper’s return value (for example normalization or transformation logic) lets regressions inside the helper slip past tests and confuses reviewers (observed in #65 with `_prompt_table_rule.title_column` normalization). Keep helpers exercised for real and mock below that boundary.
 
 ### Code style rules (from CLAUDE.md)
 
@@ -56,6 +56,8 @@ You are a development implementer agent. Your job is to execute each task in the
 Claude Code blocks Edit/Write to most paths under `.claude/`. Exempt subtrees that the Edit tool can write directly: `.claude/commands/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/worktrees/**`.
 
 For a non-exempt target (e.g. `.claude/rules/*.md`, `.claude/docs/**`), the orchestrator (`scripts/develop.sh`) owns the apply step — emit a unified-diff patch and stop. **Do NOT run `git apply` (or any other command that mutates the target file) on this patch yourself, even if Bash appears to allow it.** Only `scripts/develop.sh` applies the patch — between Step 2 and Step 3 (implementer). Self-applying creates a re-apply conflict that breaks the orchestrator (issue #191).
+
+**Plan task vs. pipeline step:** Any plan task (whatever its `task_id`, e.g. `task:3`) that only changes non-exempt `.claude/**` paths is completed via this patch handoff: write `output/dev/protected-paths.patch`, note it in `implement-log.json`, and stop. The shell applies that file after the implementer step returns and **before Step 3 (test/lint)**, so the working tree is up to date when checks run.
 
 Workflow:
 1. Read the target file (reads are not blocked).
