@@ -218,13 +218,15 @@ const FetchPageInputSchema = z.object({
   baseUrl: z.string().optional(),
 });
 
-const RecordMigrationInputSchema = z.object({
-  confluencePageId: z.string().min(1),
-  notionPageId: z.string().min(1),
-  slug: z.string().min(1),
-  notionUrl: z.string().optional(),
-  rootDir: z.string().optional(),
-});
+const RecordMigrationInputSchema = z
+  .object({
+    confluencePageId: z.string().min(1),
+    notionPageId: z.string().min(1),
+    slug: z.string().min(1),
+    notionUrl: z.string().optional(),
+    rootDir: z.string().optional(),
+  })
+  .strict();
 
 // Both run-read handlers accept an optional `rootDir` so tests can target a tmp
 // directory. The public tools/list schema only documents `slug` for
@@ -510,6 +512,8 @@ export function createServer(options: CreateServerOptions = {}): Server {
         ...(mapping.notionUrl !== undefined ? { notionUrl: mapping.notionUrl } : {}),
         recordedAt: mapping.recordedAt.toISOString(),
       };
+      // Disk: pretty-printed for human review; wire: compact to keep MCP
+      // payloads small. Same `payload` object on both sides.
       await writeFile(
         join(runDir, "mapping.json"),
         `${JSON.stringify(payload, null, 2)}\n`,

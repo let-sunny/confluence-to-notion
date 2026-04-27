@@ -118,7 +118,10 @@ migrations through a stable contract.
 A ready-to-paste Claude Desktop config snippet lives at
 [`examples/mcp/claude-desktop.json`](./examples/mcp/claude-desktop.json).
 The full tool / resource / error contract is documented in
-[`src/mcp/README.md`](./src/mcp/README.md).
+[`src/mcp/README.md`](./src/mcp/README.md). The architecture rationale —
+why c2n's MCP is read-mostly and Notion writes live in the host's own
+Notion MCP — is captured in
+[ADR-007](./.claude/docs/ADR.md#adr-007-mcp-surface--read-mostly-notion-writes-live-in-the-host).
 
 ## Architecture
 
