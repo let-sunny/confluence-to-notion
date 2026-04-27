@@ -32,8 +32,9 @@ Captured from `src/confluence_to_notion/cli.py` and
 
 > **Post-freeze additions** appear at the top of this section. `c2n init` is
 > the first post-freeze additive subcommand, introduced by issue #188 (slice 1
-> of credential-storage work). Adding new subcommands continues to require an
-> ADR amendment.
+> of credential-storage work). `c2n auth` (with `confluence` and `notion`
+> subcommands) is the second post-freeze addition, introduced by issue #190
+> (slice 2). Adding new subcommands continues to require an ADR amendment.
 
 ### `c2n init`
 
@@ -45,6 +46,27 @@ Captured from `src/confluence_to_notion/cli.py` and
 | `--confluence-base-url` | TEXT | _none_ | `CONFLUENCE_BASE_URL` | No | Confluence base URL. Prompted in TTY mode if missing; required in non-TTY mode. |
 | `--confluence-email` | TEXT | _none_ | `CONFLUENCE_EMAIL` | No | Confluence account email. Prompted in TTY mode if missing; required in non-TTY mode. |
 | `--confluence-api-token` | TEXT | _none_ | `CONFLUENCE_API_TOKEN` | No | Confluence API token. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--notion-token` | TEXT | _none_ | `NOTION_TOKEN` | No | Notion integration token. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--notion-root-page-id` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion root page ID. Prompted in TTY mode if missing; required in non-TTY mode. |
+
+### `c2n auth confluence`
+
+> Update only the Confluence credentials of an existing profile. Interactive when stdin is a TTY (prompts for missing fields); otherwise non-interactive. The named profile must already exist — this command refuses to create a new profile (use `c2n init` for that).
+
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `--profile` | TEXT | _none_ | — | No | Profile name to update. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
+| `--confluence-base-url` | TEXT | _none_ | `CONFLUENCE_BASE_URL` | No | Confluence base URL. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--confluence-email` | TEXT | _none_ | `CONFLUENCE_EMAIL` | No | Confluence account email. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--confluence-api-token` | TEXT | _none_ | `CONFLUENCE_API_TOKEN` | No | Confluence API token. Prompted in TTY mode if missing; required in non-TTY mode. |
+
+### `c2n auth notion`
+
+> Update only the Notion credentials of an existing profile. Interactive when stdin is a TTY (prompts for missing fields); otherwise non-interactive. The named profile must already exist — this command refuses to create a new profile (use `c2n init` for that).
+
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `--profile` | TEXT | _none_ | — | No | Profile name to update. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 | `--notion-token` | TEXT | _none_ | `NOTION_TOKEN` | No | Notion integration token. Prompted in TTY mode if missing; required in non-TTY mode. |
 | `--notion-root-page-id` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion root page ID. Prompted in TTY mode if missing; required in non-TTY mode. |
 

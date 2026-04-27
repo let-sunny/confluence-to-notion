@@ -90,7 +90,8 @@ function parseAdr(): Map<string, SubcommandSpec> {
     if (current) specs.set(current.name, current);
   };
 
-  const subHeaderRe = /^###\s+`c2n\s+([a-z-]+)`/;
+  // Allow multi-word command chains like "auth confluence" / "auth notion".
+  const subHeaderRe = /^###\s+`c2n\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*)*)`/;
   const tableRowRe = /^\|(.+)\|\s*$/;
   const separatorRe = /^\|[\s:|-]+\|\s*$/;
 
@@ -123,8 +124,11 @@ function parseAdr(): Map<string, SubcommandSpec> {
   return specs;
 }
 
-const EXPECTED_SUBCOMMANDS = [
+// Frozen set of leaf command chains as documented in ADR-00M.
+const EXPECTED_LEAVES = [
   "init",
+  "auth confluence",
+  "auth notion",
   "fetch",
   "fetch-tree",
   "notion-ping",
@@ -138,7 +142,16 @@ const EXPECTED_SUBCOMMANDS = [
   "migrate-tree-pages",
 ] as const;
 
-function getSubcommands(program: Command): Map<string, Command> {
+function expectedTopLevel(): string[] {
+  const set = new Set<string>();
+  for (const chain of EXPECTED_LEAVES) {
+    const head = chain.split(/\s+/)[0];
+    if (head) set.add(head);
+  }
+  return [...set].sort();
+}
+
+function getTopLevel(program: Command): Map<string, Command> {
   const map = new Map<string, Command>();
   for (const cmd of program.commands) {
     map.set(cmd.name(), cmd);
@@ -146,31 +159,40 @@ function getSubcommands(program: Command): Map<string, Command> {
   return map;
 }
 
+function walkChain(program: Command, chain: string): Command | undefined {
+  const parts = chain.split(/\s+/);
+  let cur: Command | undefined = program;
+  for (const part of parts) {
+    if (!cur) return undefined;
+    cur = cur.commands.find((c) => c.name() === part);
+  }
+  return cur;
+}
+
 describe("CLI surface: ADR-00M compliance", () => {
   const adrSpecs = parseAdr();
   const program = createProgram();
-  const actual = getSubcommands(program);
+  const topLevel = getTopLevel(program);
 
-  it("ADR-00M lists every expected subcommand", () => {
+  it("ADR-00M lists every expected leaf subcommand", () => {
     const parsed = [...adrSpecs.keys()].sort();
-    const expected = [...EXPECTED_SUBCOMMANDS].sort();
+    const expected = [...EXPECTED_LEAVES].sort();
     expect(parsed).toEqual(expected);
   });
 
-  it("registers exactly the frozen subcommand set (no drift)", () => {
-    const actualNames = [...actual.keys()].sort();
-    const expectedNames = [...EXPECTED_SUBCOMMANDS].sort();
-    expect(actualNames).toEqual(expectedNames);
+  it("registers exactly the frozen top-level subcommand set (no drift)", () => {
+    const actualNames = [...topLevel.keys()].sort();
+    expect(actualNames).toEqual(expectedTopLevel());
   });
 
-  for (const subName of EXPECTED_SUBCOMMANDS) {
-    describe(`c2n ${subName}`, () => {
-      const spec = adrSpecs.get(subName);
-      const cmd = actual.get(subName);
+  for (const chain of EXPECTED_LEAVES) {
+    describe(`c2n ${chain}`, () => {
+      const spec = adrSpecs.get(chain);
+      const cmd = walkChain(program, chain);
 
       it("is registered", () => {
-        expect(cmd, `subcommand ${subName} missing`).toBeDefined();
-        expect(spec, `ADR spec for ${subName} missing`).toBeDefined();
+        expect(cmd, `subcommand ${chain} missing`).toBeDefined();
+        expect(spec, `ADR spec for ${chain} missing`).toBeDefined();
       });
 
       it("exposes exactly the ADR flag set", () => {
@@ -194,7 +216,7 @@ describe("CLI surface: ADR-00M compliance", () => {
         if (!cmd || !spec) return;
         for (const flag of spec.flags) {
           const opt = cmd.options.find((o) => o.long === flag.name);
-          expect(opt, `option ${flag.name} missing on ${subName}`).toBeDefined();
+          expect(opt, `option ${flag.name} missing on ${chain}`).toBeDefined();
           if (!opt) continue;
 
           if (flag.default === undefined) {
@@ -202,18 +224,18 @@ describe("CLI surface: ADR-00M compliance", () => {
             // user-supplied default) when no default is set. Accept either.
             expect(
               opt.defaultValue === undefined || opt.defaultValue === false,
-              `${subName} ${flag.name} expected no default, got ${String(opt.defaultValue)}`,
+              `${chain} ${flag.name} expected no default, got ${String(opt.defaultValue)}`,
             ).toBe(true);
           } else {
-            expect(String(opt.defaultValue), `${subName} ${flag.name} default mismatch`).toBe(
+            expect(String(opt.defaultValue), `${chain} ${flag.name} default mismatch`).toBe(
               flag.default,
             );
           }
 
-          expect(opt.mandatory, `${subName} ${flag.name} mandatory mismatch`).toBe(flag.required);
+          expect(opt.mandatory, `${chain} ${flag.name} mandatory mismatch`).toBe(flag.required);
 
           if (flag.envFallback) {
-            expect(opt.envVar, `${subName} ${flag.name} env fallback mismatch`).toBe(
+            expect(opt.envVar, `${chain} ${flag.name} env fallback mismatch`).toBe(
               flag.envFallback,
             );
           }
@@ -226,9 +248,9 @@ describe("CLI surface: ADR-00M compliance", () => {
           const arg = cmd.registeredArguments.find(
             (a) => a.name().toUpperCase() === pos.name.toUpperCase(),
           );
-          expect(arg, `positional ${pos.name} missing on ${subName}`).toBeDefined();
+          expect(arg, `positional ${pos.name} missing on ${chain}`).toBeDefined();
           if (!arg) continue;
-          expect(arg.required, `${subName} ${pos.name} required mismatch`).toBe(pos.required);
+          expect(arg.required, `${chain} ${pos.name} required mismatch`).toBe(pos.required);
           if (pos.default === undefined) {
             expect(arg.defaultValue).toBeUndefined();
           } else {

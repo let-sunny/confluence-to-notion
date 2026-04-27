@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import pkg from "../../package.json" with { type: "json" };
+import { registerAuthCommands } from "./auth.js";
 import { registerConvertCommands } from "./convert.js";
 import { registerDiscoverShim } from "./discover.js";
 import { registerEvalHarness } from "./evalHarness.js";
@@ -26,6 +27,7 @@ export function createProgram(): Command {
     .option("--no-color", "disable ANSI color output");
 
   registerInitCommand(program);
+  registerAuthCommands(program);
   registerFetchCommands(program);
   registerNotionCommands(program);
   registerDiscoverShim(program);
