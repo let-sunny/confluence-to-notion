@@ -1,9 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Command } from "commander";
+import { type ConfigStoreOptions, getConfluenceCreds } from "../configStore.js";
 import { type FetchLike, createConfluenceClient } from "../confluence/client.js";
 import { type RunContext, finalizeRun, startRun, updateStep } from "../runs/index.js";
-import { readConfluenceAuth, readConfluenceBaseUrl } from "./confluenceEnv.js";
+
+function resolveConfigDirOpts(): ConfigStoreOptions {
+  const dir = process.env.C2N_CONFIG_DIR?.trim();
+  return dir !== undefined && dir.length > 0 ? { configDir: dir } : {};
+}
 
 export interface FetchCliOptions {
   space?: string;
@@ -11,6 +16,7 @@ export interface FetchCliOptions {
   limit: string;
   outDir: string;
   url?: string;
+  profile?: string;
 }
 
 function outputRootDir(): string {
@@ -18,15 +24,15 @@ function outputRootDir(): string {
 }
 
 /** When `C2N_USE_GLOBAL_FETCH=1`, use `globalThis.fetch` so MSW can intercept in tests. */
-function createCliConfluenceClient(): ReturnType<typeof createConfluenceClient> {
-  const { email, token } = readConfluenceAuth();
-  const baseUrl = readConfluenceBaseUrl();
+function createCliConfluenceClient(profile?: string): ReturnType<typeof createConfluenceClient> {
+  const { baseUrl, email, apiToken } = getConfluenceCreds(profile, resolveConfigDirOpts());
+  const trimmedBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
   const useGlobal = process.env.C2N_USE_GLOBAL_FETCH === "1";
   const g = globalThis as { fetch?: FetchLike };
   return createConfluenceClient({
     email,
-    token,
-    baseUrl,
+    token: apiToken,
+    baseUrl: trimmedBaseUrl,
     ...(useGlobal && typeof g.fetch === "function" ? { fetchImpl: g.fetch } : {}),
   });
 }
@@ -89,7 +95,7 @@ export async function runFetchCommand(opts: FetchCliOptions): Promise<void> {
     process.exit(1);
   }
 
-  const client = createCliConfluenceClient();
+  const client = createCliConfluenceClient(opts.profile);
 
   let runContext: RunContext | null = null;
   if (opts.url !== undefined && opts.url.length > 0) {
@@ -124,10 +130,11 @@ export interface FetchTreeCliOptions {
   rootId: string;
   output: string;
   url?: string;
+  profile?: string;
 }
 
 export async function runFetchTreeCommand(opts: FetchTreeCliOptions): Promise<void> {
-  const client = createCliConfluenceClient();
+  const client = createCliConfluenceClient(opts.profile);
   const tree = await client.getPageTree(opts.rootId, { maxDepth: 25 });
   const json = `${JSON.stringify(tree, null, 2)}\n`;
 
@@ -168,6 +175,7 @@ export function registerFetchCommands(program: Command): void {
     .option("--limit <n>", "max pages when using --space", "25")
     .option("--out-dir <path>", "output directory for XHTML", "samples")
     .option("--url <url>", "Confluence source URL; writes artifacts under output/runs/<slug>/")
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(async function (this: Command) {
       const o = this.opts<FetchCliOptions>();
       try {
@@ -184,6 +192,7 @@ export function registerFetchCommands(program: Command): void {
     .requiredOption("--root-id <id>", "Confluence root page ID")
     .option("--output <path>", "output JSON path", "output/page-tree.json")
     .option("--url <url>", "Confluence source URL (overrides --output placement)")
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(async function (this: Command) {
       const o = this.opts<FetchTreeCliOptions>();
       try {
