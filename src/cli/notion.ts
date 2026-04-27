@@ -1,36 +1,32 @@
 import { Client } from "@notionhq/client";
 import type { Command } from "commander";
+import { ConfigStoreError, type ConfigStoreOptions, getNotionCreds } from "../configStore.js";
 
-function readNotionToken(): string | undefined {
-  const a = process.env.NOTION_TOKEN;
-  const b = process.env.NOTION_API_TOKEN;
-  if (typeof a === "string" && a.length > 0) return a;
-  if (typeof b === "string" && b.length > 0) return b;
-  return undefined;
+interface NotionPingOptions {
+  profile?: string;
 }
 
-function readNotionRootPageId(): string | undefined {
-  const v = process.env.NOTION_ROOT_PAGE_ID;
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+function resolveConfigDirOpts(): ConfigStoreOptions {
+  const dir = process.env.C2N_CONFIG_DIR?.trim();
+  return dir !== undefined && dir.length > 0 ? { configDir: dir } : {};
 }
 
 export function registerNotionCommands(program: Command): void {
   program
     .command("notion-ping")
     .description("Validate the Notion API token by fetching bot user info.")
-    .action(async () => {
-      const token = readNotionToken();
-      if (token === undefined) {
-        process.stderr.write(
-          "Missing NOTION_TOKEN (legacy NOTION_API_TOKEN also accepted). See CONTRIBUTING.md and ADR-00M.\n",
-        );
-        process.exit(1);
-      }
-      if (readNotionRootPageId() === undefined) {
-        process.stderr.write(
-          "Missing NOTION_ROOT_PAGE_ID (required by the frozen CLI contract).\n",
-        );
-        process.exit(1);
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
+    .action(async function (this: Command) {
+      const opts = this.opts<NotionPingOptions>();
+      let token: string;
+      try {
+        ({ token } = getNotionCreds(opts.profile, resolveConfigDirOpts()));
+      } catch (e) {
+        if (e instanceof ConfigStoreError) {
+          process.stderr.write(`${e.message}\n`);
+          process.exit(1);
+        }
+        throw e;
       }
       try {
         const client = new Client({ auth: token });

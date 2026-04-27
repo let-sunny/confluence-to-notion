@@ -35,8 +35,12 @@ Captured from `src/confluence_to_notion/cli.py` and
 > of credential-storage work). `c2n auth` (with `confluence` and `notion`
 > subcommands) is the second post-freeze addition, introduced by issue #190
 > (slice 2). `c2n use` and `c2n profiles list` are the third post-freeze
-> addition, introduced by issue #195 (slice 3). Adding new subcommands
-> continues to require an ADR amendment.
+> addition, introduced by issue #195 (slice 3). Issue #203 (slice 4) extends
+> every existing data-prep subcommand (`fetch`, `fetch-tree`, `notion-ping`,
+> `convert`, `migrate`, `migrate-tree`, `migrate-tree-pages`) with a
+> `--profile <name>` flag that reads stored credentials through
+> `getConfluenceCreds(profile?)` / `getNotionCreds(profile?)`. Adding new
+> subcommands continues to require an ADR amendment.
 
 ### `c2n init`
 
@@ -99,6 +103,7 @@ Captured from `src/confluence_to_notion/cli.py` and
 | `--limit` | INTEGER | `25` | — | No | Max pages when using `--space`. |
 | `--out-dir` | PATH | `samples` | — | No | Output directory for XHTML. |
 | `--url` | TEXT | _none_ | — | No | Confluence source URL; when set, writes artifacts to `output/runs/<slug>/` and overrides `--out-dir`. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ### `c2n fetch-tree`
 
@@ -109,12 +114,17 @@ Captured from `src/confluence_to_notion/cli.py` and
 | `--root-id` | TEXT | _none_ | — | Yes | Confluence root page ID. |
 | `--output` | PATH | `output/page-tree.json` | — | No | Output JSON path; ignored when `--url` is set. |
 | `--url` | TEXT | _none_ | — | No | When set, writes `page-tree.json` under `output/runs/<slug>/`. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ### `c2n notion-ping`
 
 > Validate Notion API token by fetching bot user info.
 
-No flags. Requires `NOTION_API_TOKEN` and `NOTION_ROOT_PAGE_ID`.
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
+
+Requires `NOTION_API_TOKEN` and `NOTION_ROOT_PAGE_ID`.
 
 ### `c2n discover`
 
@@ -161,6 +171,7 @@ No flags.
 | `--rules` | PATH | `output/rules.json` | — | No | Path to rules.json. |
 | `--input` | PATH | `samples` | — | No | Directory of XHTML files. |
 | `--url` | TEXT | _none_ | — | **Yes** | Confluence source URL; converted JSON lands under `output/runs/<slug>/converted/`. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ### `c2n migrate`
 
@@ -175,6 +186,7 @@ No flags.
 | `--name` | TEXT | _none_ | — | No | Override the run slug under `output/runs/`. |
 | `--rediscover` | FLAG | `false` | — | No | Force re-running `scripts/discover.sh` even when `output/rules.json` exists. |
 | `--dry-run` | FLAG | `false` | — | No | Fetch + convert only; skip every Notion write. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 **Legacy form** (no positional URL):
 
@@ -184,6 +196,7 @@ No flags.
 | `--input` | PATH | `samples` | — | No | Directory of XHTML files. |
 | `--target` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion parent page ID. |
 | `--url` | TEXT | _none_ | — | **Yes** (in legacy form) | Confluence source URL; required when the positional URL is omitted. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ### `c2n migrate-tree`
 
@@ -194,6 +207,7 @@ No flags.
 | `--tree` | PATH | `output/page-tree.json` | — | No | Path to page-tree.json produced by `fetch-tree`. |
 | `--target` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion parent page ID. |
 | `--url` | TEXT | _none_ | — | **Yes** | Confluence source URL; `resolution.json` lands under `output/runs/<slug>/`. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ### `c2n migrate-tree-pages`
 
@@ -205,6 +219,7 @@ No flags.
 | `--target` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion parent page ID. |
 | `--rules` | PATH | `output/rules.json` | — | No | Path to rules.json. |
 | `--url` | TEXT | _none_ | — | **Yes** | Confluence source URL; every artifact (source / status / report / resolution / rules / converted) lands under `output/runs/<slug>/`. |
+| `--profile` | TEXT | _none_ | — | No | Profile name to read credentials from. Resolution order: this flag, then `C2N_PROFILE`, then `currentProfile` from the config file, then `default`. |
 
 ## Exit codes
 

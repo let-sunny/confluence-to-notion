@@ -9,6 +9,7 @@ export interface ConvertCliOptions {
   rules: string;
   input: string;
   url: string;
+  profile?: string;
 }
 
 function outputRootDir(): string {
@@ -68,6 +69,7 @@ export function registerConvertCommands(program: Command): void {
       "--url <url>",
       "Confluence source URL; converted JSON lands under output/runs/<slug>/converted/",
     )
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(async function (this: Command) {
       const o = this.opts<ConvertCliOptions>();
       try {

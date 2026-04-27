@@ -19,6 +19,7 @@ export function registerMigrateCommands(program: Command): void {
       new Option("--target <id>", "Notion parent page ID (legacy form)").env("NOTION_ROOT_PAGE_ID"),
     )
     .option("--url <url>", "Confluence source URL (required when the positional URL is omitted)")
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(notImplemented("migrate"));
 
   program
@@ -30,6 +31,7 @@ export function registerMigrateCommands(program: Command): void {
       "--url <url>",
       "Confluence source URL; resolution.json lands under output/runs/<slug>/",
     )
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(notImplemented("migrate-tree"));
 
   program
@@ -42,5 +44,6 @@ export function registerMigrateCommands(program: Command): void {
       "--url <url>",
       "Confluence source URL; every artifact lands under output/runs/<slug>/",
     )
+    .option("--profile <name>", "credential profile name (overrides C2N_PROFILE / currentProfile)")
     .action(notImplemented("migrate-tree-pages"));
 }
