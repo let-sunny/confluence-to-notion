@@ -1,5 +1,5 @@
 ---
-"confluence-to-notion": minor
+"confluence-to-notion": patch
 ---
 
 Add `c2n init` and profile-based credential storage.
