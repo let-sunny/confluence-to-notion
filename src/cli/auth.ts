@@ -189,14 +189,7 @@ export function registerAuthCommands(program: Command): void {
       ),
     )
     .action(async function (this: Command) {
-      const o = this.opts<ConfluenceAuthOptions>();
-      try {
-        await runConfluenceAuth(o);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        process.stderr.write(`auth confluence: ${msg}\n`);
-        process.exit(1);
-      }
+      await runConfluenceAuth(this.opts<ConfluenceAuthOptions>());
     });
 
   auth
@@ -213,13 +206,6 @@ export function registerAuthCommands(program: Command): void {
       new Option("--notion-root-page-id <id>", "Notion root page ID").env("NOTION_ROOT_PAGE_ID"),
     )
     .action(async function (this: Command) {
-      const o = this.opts<NotionAuthOptions>();
-      try {
-        await runNotionAuth(o);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        process.stderr.write(`auth notion: ${msg}\n`);
-        process.exit(1);
-      }
+      await runNotionAuth(this.opts<NotionAuthOptions>());
     });
 }

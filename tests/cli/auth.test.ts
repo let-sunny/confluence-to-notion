@@ -184,6 +184,7 @@ describe("c2n auth confluence", () => {
     const errMsg = stderr.mock.calls.map((c) => String(c[0])).join("");
     expect(errMsg).toMatch(/profile 'missing' does not exist/);
     expect(errMsg).toMatch(/c2n init/);
+    expect(errMsg).not.toMatch(/auth confluence: __exit__/);
 
     // Config must not have been created with a half-populated profile.
     await expect(readFile(join(tmp, "config.json"), "utf8")).rejects.toThrow();
@@ -216,6 +217,7 @@ describe("c2n auth confluence", () => {
       const errMsg = stderr.mock.calls.map((c) => String(c[0])).join("");
       expect(errMsg).toMatch(/--confluence-email/);
       expect(errMsg).toMatch(/--confluence-api-token/);
+      expect(errMsg).not.toMatch(/auth confluence: __exit__/);
     } finally {
       Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
     }
@@ -304,6 +306,7 @@ describe("c2n auth notion", () => {
     const errMsg = stderr.mock.calls.map((c) => String(c[0])).join("");
     expect(errMsg).toMatch(/profile 'missing' does not exist/);
     expect(errMsg).toMatch(/c2n init/);
+    expect(errMsg).not.toMatch(/auth notion: __exit__/);
   });
 
   it("non-TTY without all required flags exits 1 listing the missing flags", async () => {
@@ -332,6 +335,7 @@ describe("c2n auth notion", () => {
       expect(exit).toHaveBeenCalledWith(1);
       const errMsg = stderr.mock.calls.map((c) => String(c[0])).join("");
       expect(errMsg).toMatch(/--notion-root-page-id/);
+      expect(errMsg).not.toMatch(/auth notion: __exit__/);
     } finally {
       Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: isTty });
     }
