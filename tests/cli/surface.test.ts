@@ -124,6 +124,7 @@ function parseAdr(): Map<string, SubcommandSpec> {
 }
 
 const EXPECTED_SUBCOMMANDS = [
+  "init",
   "fetch",
   "fetch-tree",
   "notion-ping",

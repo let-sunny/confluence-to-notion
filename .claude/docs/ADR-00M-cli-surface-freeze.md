@@ -30,6 +30,24 @@ Captured from `src/confluence_to_notion/cli.py` and
 
 ## Subcommands
 
+> **Post-freeze additions** appear at the top of this section. `c2n init` is
+> the first post-freeze additive subcommand, introduced by issue #188 (slice 1
+> of credential-storage work). Adding new subcommands continues to require an
+> ADR amendment.
+
+### `c2n init`
+
+> Create or update a c2n credential profile. Interactive when stdin is a TTY (prompts for missing fields); otherwise non-interactive — every required value must come from a flag or its env fallback.
+
+| Flag | Type | Default | Env fallback | Required | Semantics |
+|---|---|---|---|---|---|
+| `--profile` | TEXT | `default` | — | No | Profile name to write under `profiles.<name>` in the config file. |
+| `--confluence-base-url` | TEXT | _none_ | `CONFLUENCE_BASE_URL` | No | Confluence base URL. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--confluence-email` | TEXT | _none_ | `CONFLUENCE_EMAIL` | No | Confluence account email. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--confluence-api-token` | TEXT | _none_ | `CONFLUENCE_API_TOKEN` | No | Confluence API token. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--notion-token` | TEXT | _none_ | `NOTION_TOKEN` | No | Notion integration token. Prompted in TTY mode if missing; required in non-TTY mode. |
+| `--notion-root-page-id` | TEXT | _none_ | `NOTION_ROOT_PAGE_ID` | No | Notion root page ID. Prompted in TTY mode if missing; required in non-TTY mode. |
+
 ### `c2n fetch`
 
 > Fetch Confluence pages and save XHTML to disk.
