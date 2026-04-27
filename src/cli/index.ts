@@ -9,6 +9,8 @@ import { registerFinalizeCommands } from "./finalize.js";
 import { registerInitCommand } from "./init.js";
 import { registerMigrateCommands } from "./migrate.js";
 import { registerNotionCommands } from "./notion.js";
+import { registerProfilesCommands } from "./profiles.js";
+import { registerUseCommand } from "./use.js";
 import { registerValidateCommands } from "./validate.js";
 
 export function createProgram(): Command {
@@ -28,6 +30,8 @@ export function createProgram(): Command {
 
   registerInitCommand(program);
   registerAuthCommands(program);
+  registerUseCommand(program);
+  registerProfilesCommands(program);
   registerFetchCommands(program);
   registerNotionCommands(program);
   registerDiscoverShim(program);
