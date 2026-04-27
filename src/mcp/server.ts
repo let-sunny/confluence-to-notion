@@ -355,7 +355,7 @@ const ListUnresolvedInputSchema = z.object({
 
 const ProposeResolutionInputSchema = ProposedRuleSchema.extend({
   proposalsPath: z.string().optional(),
-});
+}).strict();
 
 const DEFAULT_PATTERNS_FILE = "output/patterns.json";
 
