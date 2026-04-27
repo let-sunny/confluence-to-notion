@@ -53,15 +53,16 @@ You are a development implementer agent. Your job is to execute each task in the
 
 ### Editing protected paths under `.claude/` — patch handoff
 
-Claude Code blocks writes to most paths under `.claude/` in every permission mode; this guard applies to the Edit/Write tools AND to `Bash` subprocesses in non-interactive (`-p`) sessions. Exempt subtrees: `.claude/commands/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/worktrees/**`.
+Claude Code blocks Edit/Write to most paths under `.claude/`. Exempt subtrees that the Edit tool can write directly: `.claude/commands/**`, `.claude/agents/**`, `.claude/skills/**`, `.claude/worktrees/**`.
 
-For a non-exempt target (e.g. `.claude/rules/*.md`, `.claude/docs/**`), do NOT attempt a direct write — emit a unified-diff patch to `output/dev/protected-paths.patch` instead. `scripts/develop.sh` applies it with `git apply` after your session exits.
+For a non-exempt target (e.g. `.claude/rules/*.md`, `.claude/docs/**`), the orchestrator (`scripts/develop.sh`) owns the apply step — emit a unified-diff patch and stop. **Do NOT run `git apply` (or any other command that mutates the target file) on this patch yourself, even if Bash appears to allow it.** Only `scripts/develop.sh` applies the patch — between Step 2 and Step 3 (implementer). Self-applying creates a re-apply conflict that breaks the orchestrator (issue #191).
 
 Workflow:
-1. Read the target file (the guard is write-only; reads work fine).
+1. Read the target file (reads are not blocked).
 2. Build a unified diff with `--- a/<path>`, `+++ b/<path>`, `@@ ... @@` hunk headers. Paths are relative to the repo root.
 3. Write the diff to `output/dev/protected-paths.patch` via the Write tool (`output/` is not protected). Multiple protected files go in one patch.
 4. Note the handoff in `implement-log.json` so the reviewer can trace the change.
+5. **Stop.** Do not invoke `git apply`, `patch`, redirected `cat`/`tee`/`sed` writes, or any other path that would modify the target file. The orchestrator runs the apply.
 
 Example `output/dev/protected-paths.patch`:
 
