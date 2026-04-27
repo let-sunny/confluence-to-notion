@@ -26,10 +26,10 @@ All inputs are JSON objects (`additionalProperties: false`).
 | ------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `c2n_migrate_page`  | `pageIdOrUrl`, `parentNotionPageId`         | JSON text: `{ notionPageId?, sourcePageId, title, blockCount, unresolvedCount, dryRun? }`            | Disabled unless the server is started with `allowWrite: true`. With `dryRun: true` the converter still runs but Notion is not called. |
 
-`c2n_migrate_page` requires both a Confluence adapter (built from the
-`CONFLUENCE_*` env vars) and a Notion adapter (built from `NOTION_TOKEN`); a
-missing factory surfaces as an `InvalidRequest` error naming the missing env
-contract.
+`c2n_migrate_page` requires both a Confluence adapter and a Notion adapter
+(see [Configuration](#configuration) for the resolution order). A missing
+credential surfaces as an `InvalidRequest` error suggesting `c2n init` or the
+matching env var.
 
 ## Resources
 
@@ -50,7 +50,16 @@ converter writer uses, so reads round-trip cleanly with whatever
 
 ## Configuration
 
-The stdio entry (`src/mcp/index.ts`) reads:
+The stdio entry (`src/mcp/index.ts`) resolves credentials through the same
+profile store as the CLI. Resolution order:
+
+1. `--profile <name>` flag (when invoked from a wrapper that passes one)
+2. `C2N_PROFILE` env var
+3. `currentProfile` recorded in the config file
+4. `"default"`
+
+If the resolved profile is missing or incomplete, the entry falls back to
+direct env vars so existing deployments keep working:
 
 | Env var                   | Used for                                                                                       |
 | ------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -58,6 +67,12 @@ The stdio entry (`src/mcp/index.ts`) reads:
 | `CONFLUENCE_EMAIL`        | Same.                                                                                          |
 | `CONFLUENCE_API_TOKEN`    | Same.                                                                                          |
 | `NOTION_TOKEN`            | Builds the Notion adapter for `c2n_migrate_page`.                                              |
+| `C2N_CONFIG_DIR`          | Override the config-store directory (defaults to `~/.config/c2n`). Useful for tests.           |
+
+Once a user has run `c2n init`, the `env:` block in
+`claude_desktop_config.json` becomes optional: the MCP server reads creds from
+the store under the resolved profile. Missing creds surface as an
+`InvalidRequest` error suggesting `c2n init` or env vars.
 
 `allowWrite` and `runsRoot` are constructor options on `createServer` rather
 than env vars; the production stdio entry decides how to wire them based on
