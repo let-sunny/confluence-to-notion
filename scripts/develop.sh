@@ -151,6 +151,7 @@ apply_protected_patch() {
 
     if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
         echo "    [protected-patch] already applied (likely self-applied by agent) — skipping"
+        echo "    [protected-patch] handoff artifact was: $patch_file (removed)"
         rm -f "$patch_file"
         return 0
     fi
@@ -484,7 +485,9 @@ Read the plan, then implement each task in order following TDD.
 After implementation, write your decisions and known risks to ${OUTPUT_DIR}/implement-log.json"
 
 # Apply any patch the implementer emitted for protected `.claude/**` paths (see
-# apply_protected_patch docstring). Runs before Step 3 so test/lint sees the changes.
+# apply_protected_patch docstring). Runs after Step 2 returns and before Step 3
+# (test/lint): a plan task that only touched non-exempt `.claude/**` is finalized
+# here via output/dev/protected-paths.patch — not during the agent session.
 apply_protected_patch 2 "dev-implementer" || { echo "[ERROR] Step 2: protected patch apply failed"; exit 1; }
 
 # --- Step 3: Test ---
